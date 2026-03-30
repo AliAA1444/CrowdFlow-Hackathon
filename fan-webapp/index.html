@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CrowdFlow — Fan Assistant</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;
+  --dim:#94a3b8;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--purple:#7c3aed;
+  --user-bg:#1d4ed8;--bot-bg:#334155;
+  --font-en:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --font-ar:'Tajawal','Cairo',system-ui,sans-serif;
+}
+body{font-family:var(--font-en);background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;height:100vh;display:flex;flex-direction:column}
+body.ar{font-family:var(--font-ar);font-size:15px}
+
+/* header */
+.header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.header h1{font-size:16px;font-weight:700;letter-spacing:.5px}
+.header-right{display:flex;align-items:center;gap:10px}
+.badge{display:none;background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;animation:slideDown .3s ease}
+.badge.show{display:inline-block}
+.lang-toggle{padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:11px;cursor:pointer}
+.lang-toggle:hover{border-color:var(--blue)}
+@keyframes slideDown{from{transform:translateY(-10px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* notification card */
+.notif-area{overflow:hidden;max-height:0;transition:max-height .3s ease}
+.notif-area.open{max-height:240px}
+.notif-card{margin:8px 12px;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;animation:slideDown .3s ease}
+.notif-card.deal{background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:var(--green)}
+.notif-card.emergency{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:var(--red);font-weight:600}
+.notif-card.medical{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);color:#c084fc;font-weight:600}
+.notif-card.info{background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);color:var(--blue)}
+.notif-card.reroute{background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.35);color:#fde047}
+.notif-card .notif-title{font-weight:700;margin-bottom:3px;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.notif-card .notif-close{float:right;cursor:pointer;opacity:.6;font-size:16px}
+[dir="rtl"] .notif-card .notif-close{float:left}
+.notif-card .notif-close:hover{opacity:1}
+
+/* chat */
+.chat{flex:1;overflow-y:auto;padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px}
+.bubble{max-width:82%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+.bubble.user{align-self:flex-end;background:var(--user-bg);border-bottom-right-radius:4px}
+[dir="rtl"] .bubble.user{border-bottom-right-radius:16px;border-bottom-left-radius:4px}
+.bubble.bot{align-self:flex-start;background:var(--bot-bg);border-bottom-left-radius:4px}
+[dir="rtl"] .bubble.bot{border-bottom-left-radius:16px;border-bottom-right-radius:4px}
+.bubble.bot .b-type{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.typing{align-self:flex-start;padding:10px 18px;background:var(--bot-bg);border-radius:16px;border-bottom-left-radius:4px;display:none}
+.typing.show{display:block}
+.typing span{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin:0 2px;animation:bounce .6s infinite}
+.typing span:nth-child(2){animation-delay:.15s}
+.typing span:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+
+/* quick actions */
+.quick-actions{display:flex;gap:8px;padding:8px 12px;overflow-x:auto;flex-shrink:0}
+.quick-actions button{white-space:nowrap;padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;cursor:pointer;transition:border-color .2s,background .2s}
+.quick-actions button:hover{border-color:var(--blue);background:rgba(59,130,246,.1)}
+.quick-actions .btn-safety{border-color:rgba(239,68,68,.5);color:#fca5a5}
+.quick-actions .btn-safety:hover{background:rgba(239,68,68,.1);border-color:var(--red)}
+
+/* input */
+.input-bar{display:flex;gap:8px;padding:10px 12px;background:var(--surface);border-top:1px solid var(--border)}
+.input-bar input{flex:1;padding:10px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;outline:none}
+.input-bar input:focus{border-color:var(--blue)}
+.input-bar button{width:40px;height:40px;border-radius:50%;border:none;background:var(--blue);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.input-bar button:disabled{opacity:.4;cursor:default}
+
+/* exterior zone reroute highlight */
+.reroute-tip{font-size:12px;margin-top:4px;opacity:.85;font-style:italic}
+
+/* notification history */
+.history-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--surface);border-top:1px solid var(--border);cursor:pointer;font-size:12px;color:var(--dim);flex-shrink:0;user-select:none}
+.history-toggle:hover{color:var(--text)}
+.history-toggle .hist-count{background:var(--border);padding:1px 7px;border-radius:10px;font-size:11px}
+.history-panel{max-height:0;overflow-y:auto;transition:max-height .3s ease;flex-shrink:0;background:var(--bg)}
+.history-panel.open{max-height:220px}
+.hist-item{padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;line-height:1.5}
+.hist-item .hist-time{font-size:10px;color:var(--dim);margin-bottom:2px}
+.hist-item .hist-title{font-weight:700;margin-bottom:1px}
+.hist-item.deal .hist-title{color:var(--green)}
+.hist-item.emergency .hist-title{color:var(--red)}
+.hist-item.medical .hist-title{color:#c084fc}
+.hist-item.reroute .hist-title{color:#fde047}
+.hist-item.info .hist-title{color:var(--blue)}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1>CrowdFlow</h1>
+  <div class="header-right">
+    <button class="lang-toggle" id="langToggle" onclick="toggleLang()">EN | AR</button>
+    <span class="badge" id="badge">0</span>
+  </div>
+</header>
+
+<div class="notif-area" id="notifArea"></div>
+
+<div class="chat" id="chat">
+  <div class="bubble bot">
+    <div class="b-type" data-i18n="assistant">assistant</div>
+    <span data-i18n="welcome">Hey! I'm your stadium assistant. Ask me about food, bathrooms, crowd levels, safety, or halftime. Use the quick buttons below or type your own question.</span>
+  </div>
+</div>
+
+<div class="typing" id="typing"><span></span><span></span><span></span></div>
+
+<div class="quick-actions" id="quickActions">
+  <button onclick="askQuick(0)" data-i18n="q_food">Fast food?</button>
+  <button onclick="askQuick(1)" data-i18n="q_bathroom">Bathroom</button>
+  <button onclick="askQuick(2)" data-i18n="q_crowd">Crowd check</button>
+  <button onclick="askQuick(3)" data-i18n="q_halftime">Halftime?</button>
+  <button onclick="askQuick(4)" class="btn-safety" data-i18n="q_safety">🚨 Is it safe?</button>
+</div>
+
+<div class="input-bar">
+  <input type="text" id="userInput" data-i18n-placeholder="placeholder" placeholder="Ask me anything..." autocomplete="off">
+  <button id="sendBtn" onclick="sendMessage()">&#9654;</button>
+</div>
+
+<div class="history-toggle" id="historyToggle" onclick="toggleHistory()">
+  <span data-i18n="notif_history">Notification History</span>
+  <span class="hist-count" id="histCount">0</span>
+</div>
+<div class="history-panel" id="historyPanel"></div>
+
+<script>
+const API = location.origin;
+const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/fan`;
+const chat        = document.getElementById('chat');
+const typing      = document.getElementById('typing');
+const input       = document.getElementById('userInput');
+const badge       = document.getElementById('badge');
+const notifArea   = document.getElementById('notifArea');
+const histPanel   = document.getElementById('historyPanel');
+const histCount   = document.getElementById('histCount');
+let   histTotal   = 0;
+
+// Exterior overflow zones (shown specially in reroute messages)
+const EXTERIOR_ZONES = new Set(['zone_activation_1','zone_activation_2','zone_north_parking']);
+const EXTERIOR_LABELS = {
+  zone_activation_1: {en:'Activation Zone 1', ar:'منطقة الفعاليات 1'},
+  zone_activation_2: {en:'Activation Zone 2', ar:'منطقة الفعاليات 2'},
+  zone_north_parking:{en:'North Parking Area', ar:'منطقة المواقف الشمالية'},
+};
+const ZONE_LABELS_AR = {
+  zone_north_gate:'البوابة الشمالية', zone_south_gate:'البوابة الجنوبية',
+  zone_east_stand:'المدرج الشرقي', zone_west_stand:'المدرج الغربي',
+  zone_north_concourse:'الردهة الشمالية', zone_south_concourse:'الردهة الجنوبية',
+  zone_pitch_view:'منظر الملعب',
+  zone_activation_1:'منطقة الفعاليات 1', zone_activation_2:'منطقة الفعاليات 2',
+  zone_north_parking:'المواقف الشمالية',
+};
+const ZONE_LABELS_EN = {
+  zone_north_gate:'North Gate', zone_south_gate:'South Gate',
+  zone_east_stand:'East Stand', zone_west_stand:'West Stand',
+  zone_north_concourse:'North Concourse', zone_south_concourse:'South Concourse',
+  zone_pitch_view:'Pitch View',
+  zone_activation_1:'Activation Zone 1', zone_activation_2:'Activation Zone 2',
+  zone_north_parking:'North Parking',
+};
+function zoneLabel(zid) {
+  return currentLang === 'ar' ? (ZONE_LABELS_AR[zid] || zid) : (ZONE_LABELS_EN[zid] || zid);
+}
+
+// ── i18n ────────────────────────────────────────────────────────────────────
+const I18N = {
+  en: {
+    assistant: 'assistant',
+    welcome: "Hey! I'm your stadium assistant. Ask me about food, bathrooms, crowd levels, safety, or halftime. Use the quick buttons below or type your own question.",
+    q_food:'Fast food?', q_bathroom:'Bathroom', q_crowd:'Crowd check',
+    q_halftime:'Halftime?', q_safety:'🚨 Is it safe?',
+    placeholder:'Ask me anything...',
+    flash_deal:'Flash Deal!', special_offer:'Special Offer!',
+    emergency_alert:'Emergency Alert', medical_alert:'Medical Emergency',
+    all_clear:'All Clear', crowd_advisory:'Crowd Advisory', reroute_tip:'Route Suggestion',
+    emergency_body:'Follow stadium staff instructions immediately. Move to the nearest exit calmly.',
+    medical_body:'🏥 Medical team responding. Please stay calm and clear the area. Follow staff guidance.',
+    cleared_body:'Emergency has been resolved. Normal operations resumed.',
+    error_msg:"Couldn't reach the server. Please try again.",
+    fallback_msg:"Sorry, I didn't understand that.",
+    notif_history:'Notification History',
+  },
+  ar: {
+    assistant: 'مساعد',
+    welcome: 'أهلاً! أنا مساعدك في الملعب. اسألني عن الأكل، دورات المياه، الأمان، الزحمة، أو الاستراحة. استخدم الأزرار أدناه أو اكتب سؤالك.',
+    q_food:'أكل سريع؟', q_bathroom:'دورة مياه', q_crowd:'كيف الزحمة؟',
+    q_halftime:'الاستراحة؟', q_safety:'🚨 هل الوضع آمن؟',
+    placeholder:'اسألني أي شيء...',
+    flash_deal:'عرض خاطف!', special_offer:'عرض خاص!',
+    emergency_alert:'تنبيه طوارئ', medical_alert:'طوارئ طبية',
+    all_clear:'انتهاء الحالة', crowd_advisory:'تنبيه زحمة', reroute_tip:'اقتراح مسار',
+    emergency_body:'اتبع تعليمات طاقم الملعب فوراً. توجه إلى أقرب مخرج بهدوء.',
+    medical_body:'🏥 الفريق الطبي يستجيب. يرجى البقاء هادئاً وإخلاء المنطقة. اتبع تعليمات الطاقم.',
+    cleared_body:'تم حل الحالة الطارئة. عادت العمليات لطبيعتها.',
+    error_msg:'تعذر الاتصال بالخادم. حاول مرة أخرى.',
+    fallback_msg:'عذراً، لم أفهم سؤالك.',
+    notif_history:'سجل الإشعارات',
+  }
+};
+
+const QUICK_QUESTIONS = {
+  en: [
+    'Where can I get fast food?',
+    'Where is the nearest bathroom?',
+    'How crowded is it right now?',
+    'What should I know about halftime?',
+    'Is it safe right now?',
+  ],
+  ar: [
+    'وين أقدر آكل أكل سريع؟',
+    'وين أقرب حمام؟',
+    'كيف الزحمة الحين؟',
+    'وش أسوي وقت الاستراحة؟',
+    'هل الوضع آمن؟',
+  ],
+};
+
+let currentLang = 'en';
+let notifCount = 0;
+let ws;
+
+function t(key) { return I18N[currentLang][key] || I18N.en[key] || key; }
+
+function toggleLang() {
+  currentLang = currentLang === 'en' ? 'ar' : 'en';
+  applyLang();
+}
+
+function applyLang() {
+  const isAr = currentLang === 'ar';
+  document.documentElement.lang = currentLang;
+  document.documentElement.dir = isAr ? 'rtl' : 'ltr';
+  document.body.classList.toggle('ar', isAr);
+  document.getElementById('langToggle').textContent = isAr ? 'AR | EN' : 'EN | AR';
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset['i18nPlaceholder']);
+  });
+}
+
+// ── WebSocket push notifications ─────────────────────────────────────────────
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onclose = () => setTimeout(connectWS, 3000);
+  ws.onerror = () => ws.close();
+  ws.onmessage = (e) => {
+    try { handlePush(JSON.parse(e.data).data); } catch {}
+  };
+}
+
+function handlePush(data) {
+  const action = data.action || '';
+  let type  = 'info';
+  let title = 'Update';
+  let body  = '';
+  let extra = '';
+
+  if (action === 'FLASH_DEAL' || action === 'TARGETED_PROMOTION') {
+    type = 'deal';
+    title = action === 'FLASH_DEAL' ? t('flash_deal') : t('special_offer');
+    const d = data.details || {};
+    const disc  = d.recommended_discount ? `${Math.round(d.recommended_discount * 100)}%` : '';
+    const stall = d.stall_name || d.target_stall_name || '';
+    const reason = d.reason || '';
+    body = currentLang === 'ar'
+      ? `خصم ${disc} في ${stall}. عرض لفترة محدودة!`
+      : `${disc} off at ${stall}. Limited time!`;
+    if (reason) extra = `<div class="reroute-tip">${reason}</div>`;
+
+  } else if (action === 'EMERGENCY_ALERT') {
+    type  = 'emergency';
+    title = t('emergency_alert');
+    body  = t('emergency_body');
+
+  } else if (action === 'MEDICAL_EMERGENCY') {
+    type  = 'medical';
+    title = `🏥 ${t('medical_alert')}`;
+    const zoneId = data.zone_id || '';
+    const reason = data.details?.reason || '';
+    body = t('medical_body');
+    if (zoneId) body += currentLang === 'ar'
+      ? `\nالمنطقة: ${zoneLabel(zoneId)}`
+      : `\nZone: ${zoneLabel(zoneId)}`;
+    if (reason && reason !== 'Medical emergency — manual override') {
+      extra = `<div class="reroute-tip">${reason}</div>`;
+    }
+
+  } else if (action === 'EMERGENCY_CLEARED') {
+    type  = 'deal';
+    title = t('all_clear');
+    body  = t('cleared_body');
+
+  } else if (action === 'REROUTE_TRAFFIC') {
+    type  = 'reroute';
+    title = t('crowd_advisory');
+    const targetZone = data.details?.suggested_target_zone;
+    const rawZoneId = data.zone_id || 'a zone';
+    const zoneDisplay = zoneLabel(rawZoneId);
+
+    if (EXTERIOR_ZONES.has(targetZone)) {
+      // Exterior overflow suggestion — special helpful message
+      const targetLabel = EXTERIOR_LABELS[targetZone]?.[currentLang] || zoneLabel(targetZone);
+      body = currentLang === 'ar'
+        ? `ازدحام في ${zoneDisplay}. توجه إلى ${targetLabel} — مساحة خارجية أكثر هدوءاً.`
+        : `High traffic in ${zoneDisplay}. Head to ${targetLabel} — a quieter outdoor area.`;
+      extra = `<div class="reroute-tip">→ ${targetLabel}</div>`;
+    } else if (targetZone) {
+      const targetLabel = zoneLabel(targetZone);
+      body = currentLang === 'ar'
+        ? `ازدحام عالٍ في ${zoneDisplay}. يُوصى بالتوجه إلى ${targetLabel}.`
+        : `High traffic in ${zoneDisplay}. Consider moving to ${targetLabel}.`;
+    } else {
+      body = currentLang === 'ar'
+        ? `ازدحام عالٍ في ${zoneDisplay}. يرجى استخدام مسارات بديلة.`
+        : `High traffic in ${zoneDisplay}. Consider alternative routes.`;
+    }
+  }
+
+  if (body) showNotification(type, title, body + extra);
+}
+
+function toggleHistory() {
+  histPanel.classList.toggle('open');
+}
+
+function addToHistory(type, title, bodyText) {
+  histTotal++;
+  histCount.textContent = histTotal;
+  const now = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const item = document.createElement('div');
+  item.className = `hist-item ${type}`;
+  item.innerHTML = `<div class="hist-time">${now}</div><div class="hist-title">${title}</div><div>${bodyText}</div>`;
+  histPanel.prepend(item);
+  // Keep max 30 history items
+  while (histPanel.children.length > 30) histPanel.removeChild(histPanel.lastChild);
+}
+
+function showNotification(type, title, bodyHtml) {
+  notifCount++;
+  badge.textContent = notifCount;
+  badge.classList.add('show');
+
+  const card = document.createElement('div');
+  card.className = `notif-card ${type}`;
+  card.innerHTML = `<span class="notif-close" onclick="this.parentElement.remove()">&times;</span><div class="notif-title">${title}</div>${bodyHtml}`;
+  notifArea.prepend(card);
+  notifArea.classList.add('open');
+
+  // Also persist to history (strip HTML tags for plain text)
+  const tmpDiv = document.createElement('div');
+  tmpDiv.innerHTML = bodyHtml;
+  addToHistory(type, title, tmpDiv.textContent.trim());
+
+  setTimeout(() => {
+    if (card.parentElement) card.remove();
+    if (!notifArea.children.length) notifArea.classList.remove('open');
+  }, 12000);
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+function addBubble(text, who, type) {
+  const bubble = document.createElement('div');
+  bubble.className = `bubble ${who}`;
+  if (who === 'bot' && type) {
+    bubble.innerHTML = `<div class="b-type">${type}</div>${escapeHtml(text)}`;
+  } else {
+    bubble.textContent = text;
+  }
+  chat.appendChild(bubble);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function sendMessage() {
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = '';
+  addBubble(q, 'user');
+  typing.classList.add('show');
+  chat.scrollTop = chat.scrollHeight;
+
+  try {
+    const resp = await fetch(`${API}/api/fan/ask`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({question: q}),
+    });
+    const data = await resp.json();
+    typing.classList.remove('show');
+    addBubble(data.answer || t('fallback_msg'), 'bot', data.type || t('assistant'));
+  } catch {
+    typing.classList.remove('show');
+    addBubble(t('error_msg'), 'bot', 'error');
+  }
+}
+
+function askQuick(idx) {
+  input.value = QUICK_QUESTIONS[currentLang][idx];
+  sendMessage();
+}
+
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+connectWS();
+</script>
+</body>
+</html>

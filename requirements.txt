@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+websockets
+redis[hiredis]
+python-dotenv
+ultralytics
+torch
+torchvision
+opencv-python-headless
+numpy
+Pillow
+httpx
+pydantic
+orjson

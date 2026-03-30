@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrowdFlow — Operator Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0e17;--surface:#111827;--border:#1e293b;--text:#e2e8f0;
+  --dim:#64748b;--green:#22c55e;--yellow:#eab308;--orange:#f97316;
+  --red:#ef4444;--blue:#3b82f6;--purple:#a855f7;--dark-purple:#7c3aed;
+  --font-en:'JetBrains Mono','Fira Code',monospace;
+  --font-ar:'Tajawal','Cairo',system-ui,sans-serif;
+}
+body{font-family:var(--font-en);background:var(--bg);color:var(--text);font-size:13px;overflow:hidden;height:100vh}
+body.ar{font-family:var(--font-ar);font-size:14px;letter-spacing:normal}
+a{color:var(--blue)}
+
+/* ── layout ───────────────────────────────────────────────────────────────── */
+.app{display:grid;grid-template-rows:48px 1fr;grid-template-columns:1fr 350px;height:100vh}
+.header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding-inline:20px;background:var(--surface);border-bottom:1px solid var(--border);z-index:10}
+.header h1{font-size:16px;font-weight:700;letter-spacing:1px}
+[dir="rtl"] .header h1{letter-spacing:normal}
+.header-right{display:flex;align-items:center;gap:12px}
+.conn{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
+.dot.on{background:var(--green)}
+.lang-toggle{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:.5px}
+.lang-toggle:hover{border-color:var(--blue)}
+.main{padding:16px;padding-bottom:68px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.sidebar{background:var(--surface);border-inline-start:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;width:350px;min-width:350px;max-width:350px;flex-shrink:0}
+
+/* ── emergency banner ─────────────────────────────────────────────────────── */
+.emergency-banner{display:none;grid-column:1/-1;background:var(--red);color:#fff;text-align:center;padding:10px;font-weight:700;font-size:15px;animation:pulse 1s infinite}
+.emergency-banner.active{display:block}
+.emergency-banner.medical{background:var(--dark-purple)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* ── metric cards ─────────────────────────────────────────────────────────── */
+.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;transition:background .4s,border-color .4s}
+.card .label{font-size:10px;text-transform:uppercase;color:var(--dim);margin-bottom:4px;letter-spacing:1px}
+[dir="rtl"] .card .label{letter-spacing:normal}
+.card .value{font-size:22px;font-weight:700;direction:ltr;unicode-bidi:isolate}
+.card.mode-normal{border-color:rgba(34,197,94,.4)}
+.card.mode-standstill{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.5)}
+.card.mode-emergency{background:rgba(220,38,38,.12);border-color:rgba(220,38,38,.6);animation:pulse 1.5s infinite}
+.card.mode-medical{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.6);animation:pulse 1.5s infinite}
+
+/* ── stadium map ──────────────────────────────────────────────────────────── */
+.stadium-section{flex-shrink:0}
+.stadium-section h2{font-size:11px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+[dir="rtl"] .stadium-section h2{letter-spacing:normal;text-align:right}
+/* The map uses direction:ltr so RTL never flips pixel coordinates.
+   Zone text uses unicode-bidi:plaintext so Arabic still renders correctly. */
+.stadium{
+  position:relative;width:700px;height:500px;
+  background:
+    url('/data/stadium_satellite.png') center/cover no-repeat,
+    linear-gradient(135deg,#1a1a2e 0%,#0f172a 60%,#0d1a30 100%);
+  border-radius:12px;border:1px solid var(--border);direction:ltr;overflow:hidden
+}
+.zone{
+  position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  border-radius:6px;border:1px solid rgba(255,255,255,.25);text-align:center;
+  cursor:default;overflow:hidden;
+  transition:background .5s ease,border-color .5s ease,filter 1s ease,opacity 1s ease
+}
+.zone.exterior{border-radius:10px;border-style:dashed;border-color:rgba(255,255,255,.2)}
+.zone.fog{filter:blur(3px);opacity:.35}
+.live-tag{position:absolute;top:4px;right:5px;display:flex;align-items:center;gap:3px;font-size:8px;font-weight:700;color:#fff;letter-spacing:.3px;text-transform:uppercase;pointer-events:none}
+.live-dot{width:6px;height:6px;border-radius:50%;background:#ef4444;animation:pulse 1s infinite;flex-shrink:0}
+.zone .zone-label{font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.4px;opacity:.9;unicode-bidi:plaintext;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:94%;padding:0 3px}
+.zone .zone-icon{font-size:13px;line-height:1.2}
+.zone .zone-count{font-size:16px;font-weight:700;line-height:1.1}
+.zone .zone-pct{font-size:9px;opacity:.7}
+
+/* ── state legend ─────────────────────────────────────────────────────────── */
+.legend-bar{display:flex;gap:6px;flex-wrap:wrap;padding:6px 0}
+.legend-item{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}
+.legend-swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+
+/* ── demo controls (fixed footer) ─────────────────────────────────────────── */
+.controls{
+  position:fixed;bottom:0;inset-inline-start:0;width:calc(100% - 350px);
+  z-index:1000;display:flex;align-items:center;flex-wrap:wrap;gap:6px;
+  padding:8px 16px;background:var(--surface);border-top:1px solid var(--border)
+}
+.controls button{padding:7px 13px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-family:inherit;font-size:11px;cursor:pointer;transition:border-color .2s,background .2s}
+.controls button:hover{border-color:var(--blue)}
+.controls .btn-danger{border-color:var(--red);color:var(--red)}
+.controls .btn-danger:hover{background:rgba(239,68,68,.1)}
+.controls .btn-warn{border-color:var(--orange);color:var(--orange)}
+.controls .btn-warn:hover{background:rgba(249,115,22,.1)}
+.controls .btn-medical{border-color:var(--dark-purple);color:#c084fc}
+.controls .btn-medical:hover{background:rgba(124,58,237,.1)}
+.controls select{padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-family:inherit;font-size:11px;cursor:pointer}
+.camera-status{margin-inline-start:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim)}
+.cam-dot{width:7px;height:7px;border-radius:50%;background:var(--dim);flex-shrink:0}
+.cam-dot.active{background:var(--green)}
+
+/* ── sidebar ──────────────────────────────────────────────────────────────── */
+.sidebar-header{padding:12px 14px;border-bottom:1px solid var(--border);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--dim);text-align:start;flex-shrink:0}
+[dir="rtl"] .sidebar-header{letter-spacing:normal}
+.log{flex:1;overflow-y:auto;padding:6px}
+.log-entry{
+  padding:8px 10px;margin-bottom:5px;border-radius:6px;
+  border-inline-start:3px solid var(--dim);background:rgba(255,255,255,.02);
+  font-size:11px;line-height:1.5;text-align:start;
+  word-break:break-word;overflow-wrap:break-word
+}
+.log-entry.approved{border-inline-start-color:var(--green)}
+.log-entry.denied{border-inline-start-color:var(--red);opacity:.75}
+.log-entry .le-head{display:flex;justify-content:space-between;align-items:flex-start;gap:4px;margin-bottom:2px}
+.log-entry .le-action{font-weight:700;flex:1}
+.log-entry .le-status{font-size:10px;padding:1px 6px;border-radius:3px;flex-shrink:0;white-space:nowrap}
+.log-entry.approved .le-status{background:rgba(34,197,94,.15);color:var(--green)}
+.log-entry.denied .le-status{background:rgba(239,68,68,.15);color:var(--red)}
+.log-entry .le-meta{color:var(--dim);font-size:10px;margin-top:1px}
+.log-entry .le-note{color:var(--dim);font-size:10px;margin-top:2px;font-style:italic}
+.log-entry .le-target{color:#93c5fd;font-size:10px;margin-top:1px}
+.log-entry.medical-entry{border-inline-start-color:#c084fc}
+</style>
+</head>
+<body>
+<div class="emergency-banner" id="emergencyBanner">EMERGENCY ACTIVE — EVACUATION IN PROGRESS</div>
+<div class="app">
+  <header class="header">
+    <h1>⚡ CROWDFLOW</h1>
+    <div class="header-right">
+      <button class="lang-toggle" id="langToggle" onclick="toggleLang()">EN | AR</button>
+      <div class="conn"><span class="dot" id="connDot"></span><span id="connLabel">Disconnected</span></div>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- Metric cards -->
+    <div class="metrics">
+      <div class="card"><div class="label" data-i18n="match_clock">Match Clock</div><div class="value" id="mClock">--:--</div></div>
+      <div class="card"><div class="label" data-i18n="total_crowd">Total Crowd</div><div class="value" id="mCrowd">--</div></div>
+      <div class="card"><div class="label" data-i18n="fb_revenue">F&amp;B Revenue</div><div class="value" id="mRevenue">$0</div></div>
+      <div class="card"><div class="label" data-i18n="decisions">Decisions</div><div class="value" id="mDecisions">0</div></div>
+      <div class="card"><div class="label" data-i18n="alerts">Alerts</div><div class="value" id="mAlerts">0</div></div>
+      <div class="card mode-normal" id="modeCard"><div class="label" data-i18n="system_mode">System Mode</div><div class="value" id="mMode" style="font-size:14px">NORMAL</div></div>
+    </div>
+
+    <!-- Stadium map -->
+    <div class="stadium-section">
+      <h2 data-i18n="stadium_map">Stadium Map</h2>
+      <div class="stadium" id="stadium"><!-- zones injected by JS --></div>
+    </div>
+
+    <!-- Congestion state legend -->
+    <div>
+      <h2 style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="state_legend">Congestion States</h2>
+      <div class="legend-bar" id="legendBar"><!-- injected by JS --></div>
+    </div>
+  </main>
+
+  <!-- Demo controls -->
+  <div class="controls">
+    <button onclick="triggerHalftime()" class="btn-warn" data-i18n="halftime">Halftime</button>
+    <button onclick="triggerEndmatch()" class="btn-warn" data-i18n="endmatch">End Match</button>
+    <button onclick="triggerEmergency()" class="btn-danger" data-i18n="emergency">Emergency</button>
+    <button onclick="triggerReset()" data-i18n="reset">Reset</button>
+    <select id="medicalZoneSelect" title="Select zone for medical emergency">
+      <option value="zone_north_gate">North Gate</option>
+      <option value="zone_south_gate">South Gate</option>
+      <option value="zone_east_stand">East Stand</option>
+      <option value="zone_west_stand">West Stand</option>
+      <option value="zone_north_concourse">North Concourse</option>
+      <option value="zone_south_concourse">South Concourse</option>
+      <option value="zone_pitch_view">Pitch View</option>
+      <option value="zone_activation_1">Activation Zone 1</option>
+      <option value="zone_activation_2">Activation Zone 2</option>
+      <option value="zone_north_parking">North Parking</option>
+    </select>
+    <button onclick="triggerMedical()" class="btn-medical" data-i18n="medical_btn">🏥 Medical</button>
+    <div class="camera-status">
+      <span class="cam-dot" id="camDot"></span>
+      <span id="camLabel" data-i18n="camera_status">Camera Status</span>:
+      <span id="camCount">--</span>
+    </div>
+  </div>
+
+  <!-- Sidebar: decision log -->
+  <aside class="sidebar">
+    <div class="sidebar-header" data-i18n="agent_decisions">Agent Decisions</div>
+    <div class="log" id="decisionLog"></div>
+  </aside>
+</div>
+
+<script>
+const API = location.origin;
+const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/dashboard`;
+
+// ── Congestion state definitions (mirrors config.py) ────────────────────────
+const CONGESTION_STATES = [
+  {key:'free_flow',      color:'#22c55e', icon:'🟢', en:'Free Flow',   ar:'تدفق حر'},
+  {key:'moderate',       color:'#84cc16', icon:'🟡', en:'Moderate',    ar:'متوسط'},
+  {key:'slow_flow',      color:'#eab308', icon:'🟠', en:'Slow Flow',   ar:'بطيء'},
+  {key:'congested',      color:'#f97316', icon:'🔶', en:'Congested',   ar:'مزدحم'},
+  {key:'standstill',     color:'#ef4444', icon:'🔴', en:'Standstill',  ar:'شبه توقف'},
+  {key:'crush_risk',     color:'#dc2626', icon:'🚨', en:'Crush Risk',  ar:'خطر تزاحم'},
+  {key:'medical_manual', color:'#7c3aed', icon:'🏥', en:'Medical',     ar:'طوارئ طبية'},
+];
+const STATE_MAP = Object.fromEntries(CONGESTION_STATES.map(s => [s.key, s]));
+const STATE_SEVERITY = {free_flow:0, moderate:1, slow_flow:2, congested:3, standstill:4, crush_risk:5, medical_manual:6};
+
+function getState(key) { return STATE_MAP[key] || STATE_MAP['free_flow']; }
+
+// Action translations for agent log
+const ACTION_AR = {
+  REROUTE_TRAFFIC: 'إعادة توجيه الحشود',
+  DYNAMIC_PRICE_UP: 'رفع السعر ديناميكياً',
+  DYNAMIC_PRICE_DOWN: 'خفض السعر ديناميكياً',
+  FLASH_DEAL: 'عرض خاطف',
+  TARGETED_PROMOTION: 'عرض مستهدف',
+  EMERGENCY_ALERT: 'تنبيه طوارئ',
+  EMERGENCY_CLEARED: 'انتهاء الطوارئ',
+  SAFETY_WARNING: 'تحذير أمان',
+  MEDICAL_EMERGENCY: 'حالة طبية طارئة',
+};
+
+// ── Zone layout (pixel positions on 700×500 map) ────────────────────────────
+// direction:ltr on .stadium keeps these coords stable in RTL page mode.
+const ZONE_LAYOUT = {
+  zone_north_parking:   {left:100, top:410, w:500, h:80,  type:'exterior'},   // bottom — hero live camera
+  zone_north_gate:      {left:50,  top:64,  w:300, h:62,  type:'interior'},
+  zone_west_stand:      {left:50,  top:132, w:58,  h:200, type:'interior'},
+  zone_north_concourse: {left:110, top:132, w:225, h:48,  type:'interior'},
+  zone_pitch_view:      {left:110, top:184, w:225, h:100, type:'interior'},
+  zone_south_concourse: {left:110, top:288, w:225, h:44,  type:'interior'},
+  zone_east_stand:      {left:339, top:132, w:58,  h:200, type:'interior'},
+  zone_south_gate:      {left:50,  top:336, w:300, h:62,  type:'interior'},
+  zone_activation_1:    {left:410, top:64,  w:280, h:134, type:'exterior'},
+  zone_activation_2:    {left:410, top:208, w:280, h:126, type:'exterior'},
+};
+
+// ── i18n ────────────────────────────────────────────────────────────────────
+const I18N = {
+  en: {
+    match_clock:'Match Clock', total_crowd:'Total Crowd', fb_revenue:'F&B Revenue',
+    decisions:'Decisions', alerts:'Alerts', system_mode:'System Mode',
+    stadium_map:'Stadium Map', state_legend:'Congestion States',
+    halftime:'Halftime', endmatch:'🏁 End Match', emergency:'🚨 Emergency', reset:'↺ Reset',
+    medical_btn:'🏥 Medical', camera_status:'Cameras',
+    agent_decisions:'Agent Decisions',
+    connected:'Connected', disconnected:'Disconnected', reconnecting:'Reconnecting...',
+    emergency_banner:'EMERGENCY ACTIVE — EVACUATION IN PROGRESS',
+    medical_banner:'MEDICAL EMERGENCY — FOLLOW STAFF INSTRUCTIONS',
+    mode_normal:'NORMAL', mode_standstill:'STANDSTILL', mode_emergency:'EMERGENCY', mode_medical:'MEDICAL',
+    // Zone labels
+    zone_north_gate:'North Gate', zone_south_gate:'South Gate',
+    zone_east_stand:'East Stand', zone_west_stand:'West Stand',
+    zone_north_concourse:'N. Concourse', zone_south_concourse:'S. Concourse',
+    zone_pitch_view:'Pitch View',
+    zone_activation_1:'Activation 1', zone_activation_2:'Activation 2',
+    zone_north_parking:'North Parking',
+  },
+  ar: {
+    match_clock:'وقت المباراة', total_crowd:'إجمالي الحضور', fb_revenue:'إيرادات الأغذية',
+    decisions:'القرارات', alerts:'التنبيهات', system_mode:'حالة النظام',
+    stadium_map:'خريطة الملعب', state_legend:'حالات الازدحام',
+    halftime:'استراحة', endmatch:'🏁 نهاية المباراة', emergency:'🚨 طوارئ', reset:'↺ إعادة تعيين',
+    medical_btn:'🏥 طبي', camera_status:'الكاميرات',
+    agent_decisions:'قرارات الوكلاء',
+    connected:'متصل', disconnected:'غير متصل', reconnecting:'جارٍ إعادة الاتصال...',
+    emergency_banner:'حالة طوارئ — جارٍ الإخلاء',
+    medical_banner:'طوارئ طبية — اتبع تعليمات الطاقم',
+    mode_normal:'طبيعي', mode_standstill:'تنبيه توقف', mode_emergency:'طوارئ', mode_medical:'حالة طبية',
+    zone_north_gate:'البوابة الشمالية', zone_south_gate:'البوابة الجنوبية',
+    zone_east_stand:'المدرج الشرقي', zone_west_stand:'المدرج الغربي',
+    zone_north_concourse:'الردهة الشمالية', zone_south_concourse:'الردهة الجنوبية',
+    zone_pitch_view:'منظر الملعب',
+    zone_activation_1:'منطقة الفعاليات 1', zone_activation_2:'منطقة الفعاليات 2',
+    zone_north_parking:'المواقف الشمالية',
+  }
+};
+
+let currentLang = 'en';
+
+function t(key) { return I18N[currentLang][key] || I18N.en[key] || key; }
+
+function toggleLang() {
+  currentLang = currentLang === 'en' ? 'ar' : 'en';
+  applyLang();
+}
+
+function applyLang() {
+  const isAr = currentLang === 'ar';
+  document.documentElement.lang = currentLang;
+  document.documentElement.dir = isAr ? 'rtl' : 'ltr';
+  document.body.classList.toggle('ar', isAr);
+  document.getElementById('langToggle').textContent = isAr ? 'AR | EN' : 'EN | AR';
+  document.getElementById('emergencyBanner').textContent =
+    document.getElementById('emergencyBanner').classList.contains('medical')
+      ? t('medical_banner') : t('emergency_banner');
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    el.textContent = t(key);
+  });
+
+  // Update zone labels
+  document.querySelectorAll('.zone').forEach(el => {
+    const zid = el.dataset.zid;
+    if (zid) el.querySelector('.zone-label').textContent = t(zid);
+  });
+
+  // Update legend names
+  buildLegend();
+}
+
+// ── Build legend ─────────────────────────────────────────────────────────────
+function buildLegend() {
+  const bar = document.getElementById('legendBar');
+  bar.innerHTML = CONGESTION_STATES.map(s => `
+    <div class="legend-item">
+      <div class="legend-swatch" style="background:${s.color}"></div>
+      <span>${s.icon} ${currentLang === 'ar' ? s.ar : s.en}</span>
+    </div>`).join('');
+}
+
+// ── Build zone overlays ──────────────────────────────────────────────────────
+const stadium = document.getElementById('stadium');
+for (const [zid, pos] of Object.entries(ZONE_LAYOUT)) {
+  const el = document.createElement('div');
+  el.className = 'zone' + (pos.type === 'exterior' ? ' exterior fog' : '');
+  el.id = `z-${zid}`;
+  el.dataset.zid = zid;
+  el.dataset.ztype = pos.type;
+  el.style.cssText = `left:${pos.left}px;top:${pos.top}px;width:${pos.w}px;height:${pos.h}px;background:rgba(34,197,94,.15)`;
+  // Narrow zones get smaller font
+  const isNarrow = pos.w < 80;
+  const liveTag = zid === 'zone_north_parking'
+    ? `<div class="live-tag"><span class="live-dot"></span>LIVE AI</div>`
+    : '';
+  el.innerHTML = `
+    ${liveTag}
+    <span class="zone-label" style="${isNarrow ? 'font-size:8px;writing-mode:vertical-rl' : ''}">${t(zid)}</span>
+    <span class="zone-icon">🟢</span>
+    <span class="zone-count">0</span>
+    <span class="zone-pct">0%</span>`;
+  stadium.appendChild(el);
+}
+
+// ── State & counters ─────────────────────────────────────────────────────────
+let decisionCount = 0;
+let alertCount = 0;
+let systemSeverity = 0;  // 0=normal 4=standstill 5=emergency 6=medical
+let ws;
+
+// ── System mode card update ──────────────────────────────────────────────────
+function updateSystemMode(severity) {
+  systemSeverity = Math.max(systemSeverity, severity);
+  const card = document.getElementById('modeCard');
+  const modeEl = document.getElementById('mMode');
+  card.className = 'card';
+  let modeKey = 'mode_normal';
+  if (systemSeverity >= 6)      { card.classList.add('mode-medical');    modeKey = 'mode_medical'; }
+  else if (systemSeverity >= 5) { card.classList.add('mode-emergency');  modeKey = 'mode_emergency'; }
+  else if (systemSeverity >= 4) { card.classList.add('mode-standstill'); modeKey = 'mode_standstill'; }
+  else                           { card.classList.add('mode-normal'); }
+  modeEl.textContent = t(modeKey);
+}
+
+// ── WebSocket ────────────────────────────────────────────────────────────────
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    document.getElementById('connDot').classList.add('on');
+    document.getElementById('connLabel').textContent = t('connected');
+  };
+  ws.onclose = () => {
+    document.getElementById('connDot').classList.remove('on');
+    document.getElementById('connLabel').textContent = t('reconnecting');
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (e) => { try { handleMessage(JSON.parse(e.data)); } catch {} };
+}
+
+function handleMessage(msg) {
+  const {channel, data} = msg;
+  if (channel === 'broadcast:zone_metrics') updateZones(data);
+  else if (channel === 'pos:match_clock')   updateClock(data);
+  else if (channel === 'dashboard:actions') updateAction(data);
+}
+
+// ── Zone update ──────────────────────────────────────────────────────────────
+// Persistent zone cache — never cleared, always holds last known value per zone
+const _zoneCache = {};
+
+function updateZones(data) {
+  // Update cache with incoming zones first
+  for (const z of (data.zones || [])) {
+    _zoneCache[z.zone_id] = z;
+  }
+
+  // Compute total from full cache (all zones, not just current message)
+  let total = 0;
+  let maxSev = 0;
+  for (const [zid, z] of Object.entries(_zoneCache)) {
+    _recordCameraZone(z);
+    // Only count interior zones toward stadium attendance total
+    const zLayout = ZONE_LAYOUT[z.zone_id];
+    const isInterior = zLayout ? zLayout.type === 'interior' : !['zone_north_parking','zone_activation_1','zone_activation_2'].includes(z.zone_id);
+    const count = z.person_count ?? z.occupancy ?? 0;
+    if (isInterior) total += count;
+    const el = document.getElementById(`z-${z.zone_id}`);
+    if (!el) continue;
+
+    const stateKey = z.congestion_level || z.congestion || 'free_flow';
+    const state = getState(stateKey);
+    const color = z.congestion_color || state.color;
+    const icon  = z.congestion_icon  || state.icon;
+    const pct   = z.occupancy_pct   ?? Math.round((z.utilization || 0) * 100);
+
+    el.style.background = hexAlpha(color, 0.42);
+    el.style.borderColor = hexAlpha(color, 0.55);
+    el.querySelector('.zone-icon').textContent  = icon;
+    el.querySelector('.zone-count').textContent = count.toLocaleString();
+    el.querySelector('.zone-pct').textContent   = `${pct}%`;
+
+    // Fog of war for inactive exterior zones (never fog the live camera zone)
+    const isFog = el.dataset.ztype === 'exterior'
+      && z.zone_id !== 'zone_north_parking'
+      && stateKey === 'free_flow'
+      && count < 50;
+    el.classList.toggle('fog', isFog);
+
+    const sev = STATE_SEVERITY[stateKey] || 0;
+    if (sev > maxSev) maxSev = sev;
+  }
+  document.getElementById('mCrowd').textContent = total.toLocaleString();
+  updateSystemMode(maxSev);
+}
+
+// ── Clock update ─────────────────────────────────────────────────────────────
+function updateClock(data) {
+  const m = Math.floor(data.match_minute || 0);
+  const s = Math.floor(((data.match_minute || 0) - m) * 60);
+  document.getElementById('mClock').textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  document.getElementById('mRevenue').textContent = `$${(data.total_revenue || 0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}`;
+}
+
+// ── Action update ─────────────────────────────────────────────────────────────
+function updateAction(data) {
+  decisionCount++;
+  document.getElementById('mDecisions').textContent = decisionCount;
+
+  const action = data.action || '';
+  const isMedical = action === 'MEDICAL_EMERGENCY';
+
+  if (action === 'EMERGENCY_ALERT' || isMedical) {
+    alertCount++;
+    document.getElementById('mAlerts').textContent = alertCount;
+    const banner = document.getElementById('emergencyBanner');
+    banner.classList.add('active');
+    banner.classList.toggle('medical', isMedical);
+    banner.textContent = isMedical ? t('medical_banner') : t('emergency_banner');
+    updateSystemMode(isMedical ? 6 : 5);
+  }
+  if (action === 'EMERGENCY_CLEARED') {
+    document.getElementById('emergencyBanner').classList.remove('active');
+    systemSeverity = 0;
+    updateSystemMode(0);
+  }
+  if (action === 'SAFETY_WARNING') {
+    const tier = data.details?.tier;
+    if (tier === 'standstill') updateSystemMode(4);
+  }
+
+  // Build log entry
+  const log = document.getElementById('decisionLog');
+  const entry = document.createElement('div');
+  const status = data.status || 'approved';
+  entry.className = `log-entry ${status}${isMedical ? ' medical-entry' : ''}`;
+
+  // Use congestion_color for the border if available
+  if (data.congestion_color) {
+    entry.style.borderInlineStartColor = data.congestion_color;
+  }
+
+  const ts = new Date((data.timestamp || 0) * 1000).toLocaleTimeString();
+  const icon = data.congestion_icon || data.details?.congestion_icon || '';
+  const agent = data.agent || '—';
+  const rawZoneId = data.zone_id || 'global';
+  const note = data.orchestrator_note || '';
+  const targetZone = data.details?.suggested_target_zone;
+
+  // Translate action and zone for Arabic mode
+  const isAr = currentLang === 'ar';
+  const displayAction = isAr ? (ACTION_AR[action] || action) : action;
+  const displayZone = isAr ? (I18N.ar[rawZoneId] || rawZoneId) : (I18N.en[rawZoneId] || rawZoneId);
+  const displayTarget = targetZone ? (isAr ? (I18N.ar[targetZone] || targetZone) : (I18N.en[targetZone] || targetZone)) : '';
+
+  entry.innerHTML = `
+    <div class="le-head">
+      <span class="le-action">${icon ? icon + ' ' : ''}${displayAction}</span>
+      <span class="le-status">${status.toUpperCase()}</span>
+    </div>
+    <div class="le-meta">${agent} · ${displayZone} · ${ts}</div>
+    ${displayTarget ? `<div class="le-target">→ ${displayTarget}</div>` : ''}
+    ${note ? `<div class="le-note">${note}</div>` : ''}`;
+
+  log.prepend(entry);
+  while (log.children.length > 100) log.removeChild(log.lastChild);
+}
+
+// ── Demo controls ─────────────────────────────────────────────────────────────
+async function triggerHalftime() {
+  await fetch(`${API}/api/demo/trigger-halftime`, {method:'POST'});
+}
+async function triggerEndmatch() {
+  await fetch(`${API}/api/demo/trigger-endmatch`, {method:'POST'});
+}
+async function triggerEmergency() {
+  await fetch(`${API}/api/demo/trigger-emergency`, {method:'POST'});
+}
+async function triggerReset() {
+  document.getElementById('emergencyBanner').classList.remove('active', 'medical');
+  decisionCount = 0; alertCount = 0; systemSeverity = 0;
+  Object.keys(_cameraSeenAt).forEach(k => delete _cameraSeenAt[k]);
+  document.getElementById('mDecisions').textContent = '0';
+  document.getElementById('mAlerts').textContent = '0';
+  document.getElementById('decisionLog').innerHTML = '';
+  updateSystemMode(0);
+  await fetch(`${API}/api/demo/reset`, {method:'POST'});
+}
+async function triggerMedical() {
+  const zoneId = document.getElementById('medicalZoneSelect').value;
+  await fetch(`${API}/api/demo/trigger-medical`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({zone_id: zoneId, reason: 'Medical emergency triggered via dashboard'}),
+  });
+}
+
+// ── Camera status — track active cameras from live WebSocket data ─────────────
+const _cameraSeenAt = {};   // zone_id → last timestamp seen from camera_inference
+
+function _recordCameraZone(zone) {
+  if (zone.source === 'camera_inference' && zone.camera_id) {
+    _cameraSeenAt[zone.zone_id] = Date.now() / 1000;
+  }
+}
+
+function refreshCameraStatus() {
+  const now = Date.now() / 1000;
+  const totalZones = Object.keys(ZONE_LAYOUT).length;
+  const active = Object.values(_cameraSeenAt).filter(ts => now - ts < 15).length;
+  document.getElementById('camCount').textContent = `${active}/${totalZones}`;
+  document.getElementById('camDot').classList.toggle('active', active > 0);
+}
+
+// ── Hex color with alpha helper ────────────────────────────────────────────────
+function hexAlpha(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildLegend();
+connect();
+updateSystemMode(0);
+setInterval(refreshCameraStatus, 3000);
+</script>
+</body>
+</html>
