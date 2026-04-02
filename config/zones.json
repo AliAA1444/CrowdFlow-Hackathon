@@ -1,0 +1,26 @@
+{
+  "zones": {
+    "parking_lot": {
+      "type": "general",
+      "roi": {"x": 0, "y": 0, "w": 640, "h": 480},
+      "area_sqm": 2500,
+      "video_source": "feeds/parking.mp4",
+      "calibration_factor": 0.003
+    },
+    "gate_a": {
+      "type": "gate",
+      "roi": {"x": 0, "y": 0, "w": 640, "h": 480},
+      "area_sqm": 50,
+      "video_source": "feeds/gate_a.mp4",
+      "tripwire": {"p1": [320, 0], "p2": [320, 480]},
+      "in_direction": "right"
+    },
+    "concourse_north": {
+      "type": "general",
+      "roi": {"x": 100, "y": 50, "w": 440, "h": 380},
+      "area_sqm": 800,
+      "video_source": "feeds/concourse.mp4",
+      "calibration_factor": 0.005
+    }
+  }
+}
