@@ -26,12 +26,14 @@ from config import (
     ZONES,
     get_state_config,
 )
-from agents.base_agent import BaseAgent, run_agent
+from core.schemas import ZoneUpdate
+from agents.base_agent import AgentAction, BaseAgent, run_agent
 
 # ── Channels ─────────────────────────────────────────────────────────────────
-CH_POS_TX      = "pos:transactions"
+CH_POS_TX       = "pos:transactions"
 CH_ZONE_METRICS = "broadcast:zone_metrics"
-CH_FAN_INTENT  = "fan:food_intent"
+CH_FAN_INTENT   = "fan:food_intent"
+CH_ZONE_UPDATES = "zone_updates"
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 HIGH_VELOCITY_THRESHOLD  = 40     # txns per minute triggers surge pricing
@@ -44,10 +46,13 @@ INTENT_WINDOW            = 60.0   # seconds for intent accumulation
 # Exterior zones that can act as overflow attractors
 _EXTERIOR_OVERFLOW_ZONES = ["zone_activation_1", "zone_activation_2"]
 
+# Zone IDs that have concession stalls (derived from config at import time)
+_CONCESSION_ZONE_IDS: set[str] = {cfg["zone"] for cfg in CONCESSION_STALLS.values()}
+
 
 class ConcessionAgent(BaseAgent):
     name = "concession_agent"
-    subscribe_channels = [CH_POS_TX, CH_ZONE_METRICS, CH_FAN_INTENT]
+    subscribe_channels = [CH_POS_TX, CH_ZONE_METRICS, CH_FAN_INTENT, CH_ZONE_UPDATES]
 
     def __init__(self) -> None:
         super().__init__()
@@ -75,6 +80,52 @@ class ConcessionAgent(BaseAgent):
             await self._handle_zone_metrics(data)
         elif channel == CH_FAN_INTENT:
             await self._handle_food_intent(data)
+        elif channel == CH_ZONE_UPDATES:
+            update = ZoneUpdate(**data)
+            actions = await self.evaluate(update)
+            await self.publish_actions(actions)
+
+    # ── ZoneUpdate evaluation (Prompt 5) ────────────────────────────────────
+
+    async def evaluate(self, update: ZoneUpdate) -> list[AgentAction]:
+        """Revenue-optimisation rules driven by live ZoneUpdate data."""
+        guard = await super().evaluate(update)
+        if update.source == "stale_fallback":
+            return guard
+
+        # Only apply concession logic to zones that actually have stalls
+        if update.zone_id not in _CONCESSION_ZONE_IDS:
+            return []
+
+        actions: list[AgentAction] = []
+        zid = update.zone_id
+        d   = update.density
+        mag = update.flow_magnitude
+
+        if d < 1.0 and mag > 2.0:
+            # People passing through but not stopping — prime flash-sale moment
+            actions.append(AgentAction(
+                action="FLASH_SALE_OPPORTUNITY",
+                zone_id=zid,
+                priority="LOW",
+                detail=(
+                    f"Zone {zid}: high foot traffic (flow={mag:.1f} px/frame) "
+                    f"with low dwell (density={d:.2f} p/m²). "
+                    "Flash sale opportunity — people are passing but not stopping."
+                ),
+            ))
+        elif d > 2.5:
+            actions.append(AgentAction(
+                action="PAUSE_PROMOTIONS",
+                zone_id=zid,
+                priority="MEDIUM",
+                detail=(
+                    f"Zone {zid}: density {d:.2f} p/m² is congested. "
+                    "Pausing promotions to avoid drawing more people in."
+                ),
+            ))
+
+        return actions
 
     # ── POS transaction handling ─────────────────────────────────────────────
 

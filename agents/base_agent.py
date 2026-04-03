@@ -11,6 +11,7 @@ Not runnable standalone — subclass and implement ``process()``.
 
 import abc
 import asyncio
+from dataclasses import dataclass
 import json
 import logging
 import signal
@@ -23,9 +24,21 @@ import redis.asyncio as aioredis
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import REDIS_URL
+from core.schemas import ZoneUpdate
 
 # Channel where agents submit decisions for the orchestrator
 CH_ORCHESTRATOR = "orchestrator:decisions"
+# Channel for new-style evaluate() action results
+CHANNEL_AGENT_ACTIONS = "agent_actions"
+
+
+@dataclass
+class AgentAction:
+    """Structured action returned by BaseAgent.evaluate()."""
+    action: str
+    zone_id: str
+    priority: str
+    detail: str
 
 
 class BaseAgent(abc.ABC):
@@ -115,6 +128,35 @@ class BaseAgent(abc.ABC):
     @abc.abstractmethod
     async def process(self, channel: str, data: dict) -> None:
         """Handle an incoming message. Subclasses must implement this."""
+
+    # ── ZoneUpdate evaluation ────────────────────────────────────────────────
+
+    async def evaluate(self, update: ZoneUpdate) -> list[AgentAction]:
+        """Evaluate a ZoneUpdate and return recommended AgentActions.
+
+        Base implementation blocks stale data and returns [].  Subclasses
+        MUST call ``await super().evaluate(update)`` first and return early
+        if ``update.source == "stale_fallback"``.
+        """
+        if update.source == "stale_fallback":
+            self.log.warning(
+                "Skipping evaluate for zone %s: source is stale_fallback",
+                update.zone_id,
+            )
+            return []
+        return []
+
+    async def publish_actions(self, actions: list[AgentAction]) -> None:
+        """Publish a list of AgentActions to the agent_actions channel."""
+        for act in actions:
+            await self.publish_to(CHANNEL_AGENT_ACTIONS, {
+                "agent":     self.name,
+                "action":    act.action,
+                "zone_id":   act.zone_id,
+                "priority":  act.priority,
+                "detail":    act.detail,
+                "timestamp": time.time(),
+            })
 
     # ── Publishing helpers ───────────────────────────────────────────────────
 

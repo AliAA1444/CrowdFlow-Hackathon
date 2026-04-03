@@ -27,10 +27,12 @@ from config import (
     STANDSTILL_DENSITY,
     get_state_config,
 )
-from agents.base_agent import BaseAgent, run_agent
+from core.schemas import ZoneUpdate
+from agents.base_agent import AgentAction, BaseAgent, run_agent
 
 # ── Channels ─────────────────────────────────────────────────────────────────
-CH_ZONE_METRICS = "broadcast:zone_metrics"
+CH_ZONE_METRICS  = "broadcast:zone_metrics"
+CH_ZONE_UPDATES  = "zone_updates"
 
 # ── Thresholds ───────────────────────────────────────────────────────────────
 DENSITY_CRUSH_RISK  = CRUSH_RISK_DENSITY   # 5.5 p/m² → EMERGENCY_ALERT
@@ -49,7 +51,7 @@ def _state_visuals(zone: dict) -> tuple[str, str]:
 
 class SafetyAgent(BaseAgent):
     name = "safety_agent"
-    subscribe_channels = [CH_ZONE_METRICS, MEDICAL_OVERRIDE_CHANNEL]
+    subscribe_channels = [CH_ZONE_METRICS, MEDICAL_OVERRIDE_CHANNEL, CH_ZONE_UPDATES]
 
     def __init__(self) -> None:
         super().__init__()
@@ -63,8 +65,69 @@ class SafetyAgent(BaseAgent):
     async def process(self, channel: str, data: dict) -> None:
         if channel == MEDICAL_OVERRIDE_CHANNEL:
             await self._handle_medical_override(data)
+        elif channel == CH_ZONE_UPDATES:
+            update = ZoneUpdate(**data)
+            actions = await self.evaluate(update)
+            await self.publish_actions(actions)
         else:
             await self._handle_zone_metrics(data)
+
+    # ── ZoneUpdate evaluation (Prompt 5) ────────────────────────────────────
+
+    async def evaluate(self, update: ZoneUpdate) -> list[AgentAction]:
+        """Evaluate density + flow rules from a live ZoneUpdate.
+
+        Must call super() first — base class skips evaluation on stale data.
+        """
+        guard = await super().evaluate(update)
+        if update.source == "stale_fallback":
+            return guard
+
+        actions: list[AgentAction] = []
+        zid = update.zone_id
+        d   = update.density
+        mag = update.flow_magnitude
+
+        # ── Density rules ──────────────────────────────────────────────────
+        if d > 4.0:
+            actions.append(AgentAction(
+                action="CRITICAL: Overcrowding",
+                zone_id=zid,
+                priority="CRITICAL",
+                detail=f"density {d:.2f} p/m² exceeds critical threshold 4.0",
+            ))
+        elif d > 2.5:
+            actions.append(AgentAction(
+                action="WARNING: High density",
+                zone_id=zid,
+                priority="WARNING",
+                detail=f"density {d:.2f} p/m² exceeds warning threshold 2.5",
+            ))
+
+        # ── Flow rules ─────────────────────────────────────────────────────
+        if mag > 8.0 and d > 2.0:
+            actions.append(AgentAction(
+                action="ALERT: Potential stampede — fast crowd movement in dense zone",
+                zone_id=zid,
+                priority="CRITICAL",
+                detail=(
+                    f"flow_magnitude {mag:.1f} px/frame with density {d:.2f} p/m² "
+                    "indicates dangerous crowd surge"
+                ),
+            ))
+
+        if mag < 0.3 and d > 3.0:
+            actions.append(AgentAction(
+                action="WARNING: Stagnation in dense zone — possible bottleneck",
+                zone_id=zid,
+                priority="WARNING",
+                detail=(
+                    f"near-zero flow ({mag:.2f} px/frame) with high density "
+                    f"{d:.2f} p/m² indicates crowd stoppage"
+                ),
+            ))
+
+        return actions
 
     # ── Medical emergency override ───────────────────────────────────────────
 

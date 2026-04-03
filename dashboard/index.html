@@ -13,6 +13,11 @@
   --red:#ef4444;--blue:#3b82f6;--purple:#a855f7;--dark-purple:#7c3aed;
   --font-en:'JetBrains Mono','Fira Code',monospace;
   --font-ar:'Tajawal','Cairo',system-ui,sans-serif;
+  /* Density colour palette — tweak here to retheme the entire map */
+  --density-green:#22c55e;   /* < 1.0 p/m² */
+  --density-yellow:#eab308;  /* 1.0 – 2.5  */
+  --density-orange:#f97316;  /* 2.5 – 4.0  */
+  --density-red:#ef4444;     /* > 4.0      */
 }
 body{font-family:var(--font-en);background:var(--bg);color:var(--text);font-size:13px;overflow:hidden;height:100vh}
 body.ar{font-family:var(--font-ar);font-size:14px;letter-spacing:normal}
@@ -76,6 +81,66 @@ a{color:var(--blue)}
 .zone .zone-icon{font-size:13px;line-height:1.2}
 .zone .zone-count{font-size:16px;font-weight:700;line-height:1.1}
 .zone .zone-pct{font-size:9px;opacity:.7}
+
+/* ── FPS indicator ──────────────────────────────────────────────────────── */
+.zone .zone-fps{font-size:8px;color:var(--dim);line-height:1}
+.zone .zone-fps.low{color:var(--red)}
+
+/* ── Gate IN/OUT row ────────────────────────────────────────────────────── */
+.zone .zone-gate{font-size:8px;color:var(--blue);line-height:1;white-space:nowrap}
+
+/* ── Source badge  ──────────────────────────────────────────────────────── */
+.zone-source-badge{
+  position:absolute;top:4px;left:5px;
+  font-size:7px;font-weight:700;padding:1px 4px;border-radius:3px;
+  letter-spacing:.3px;text-transform:uppercase;pointer-events:none;display:none
+}
+.badge-cv-yolo  {background:rgba(34,197,94,.25);  color:#4ade80}
+.badge-cv-dense {background:rgba(59,130,246,.25);  color:#93c5fd}
+.badge-cv       {background:rgba(20,184,166,.25);  color:#5eead4}
+.badge-simulator{background:rgba(168,85,247,.25);  color:#d8b4fe}
+
+/* ── Staleness overlay ──────────────────────────────────────────────────── */
+.stale-tint{
+  display:none;
+  position:absolute;inset:0;
+  background:rgba(234,179,8,.18);
+  border:2px solid rgba(234,179,8,.6);
+  border-radius:6px;
+  pointer-events:none;z-index:2
+}
+.stale-label{
+  position:absolute;bottom:3px;left:0;right:0;text-align:center;
+  font-size:7px;font-weight:700;color:#fbbf24;letter-spacing:.3px;
+  text-transform:uppercase;z-index:3;pointer-events:none;display:none
+}
+
+/* ── Flow arrow ─────────────────────────────────────────────────────────── */
+.flow-arrow{
+  position:absolute;
+  /* centred on the zone */
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  pointer-events:none;z-index:4;
+  display:none;
+}
+.flow-arrow svg{display:block}
+
+/* ── System Health panel ────────────────────────────────────────────────── */
+.health-panel{
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;display:grid;
+  grid-template-columns:repeat(3,1fr) 2fr;gap:8px;align-items:start
+}
+.health-stat{text-align:center}
+.health-stat .hs-label{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin-bottom:2px}
+.health-stat .hs-value{font-size:18px;font-weight:700}
+.health-stat .hs-value.warn{color:var(--yellow)}
+.health-stat .hs-value.crit{color:var(--red)}
+.health-alert-log{max-height:60px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.health-alert-log .ha-entry{font-size:9px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.health-alert-log .ha-entry.crit{color:var(--red)}
+.health-alert-log .ha-entry.warn{color:var(--yellow)}
 
 /* ── state legend ─────────────────────────────────────────────────────────── */
 .legend-bar{display:flex;gap:6px;flex-wrap:wrap;padding:6px 0}
@@ -150,6 +215,31 @@ a{color:var(--blue)}
     <div class="stadium-section">
       <h2 data-i18n="stadium_map">Stadium Map</h2>
       <div class="stadium" id="stadium"><!-- zones injected by JS --></div>
+    </div>
+
+    <!-- System Health panel -->
+    <div>
+      <h2 style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">System Health</h2>
+      <div class="health-panel">
+        <div class="health-stat">
+          <div class="hs-label">Live Feeds</div>
+          <div class="hs-value" id="hLive">0</div>
+        </div>
+        <div class="health-stat">
+          <div class="hs-label">Stale Feeds</div>
+          <div class="hs-value" id="hStale">0</div>
+        </div>
+        <div class="health-stat">
+          <div class="hs-label">Avg FPS</div>
+          <div class="hs-value" id="hFps">--</div>
+        </div>
+        <div>
+          <div class="hs-label" style="margin-bottom:4px">Active Agent Alerts</div>
+          <div class="health-alert-log" id="healthAlertLog">
+            <span class="ha-entry" style="color:var(--dim)">No alerts</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Congestion state legend -->
@@ -333,17 +423,30 @@ for (const [zid, pos] of Object.entries(ZONE_LAYOUT)) {
   el.dataset.zid = zid;
   el.dataset.ztype = pos.type;
   el.style.cssText = `left:${pos.left}px;top:${pos.top}px;width:${pos.w}px;height:${pos.h}px;background:rgba(34,197,94,.15)`;
-  // Narrow zones get smaller font
   const isNarrow = pos.w < 80;
   const liveTag = zid === 'zone_north_parking'
     ? `<div class="live-tag"><span class="live-dot"></span>LIVE AI</div>`
     : '';
   el.innerHTML = `
     ${liveTag}
+    <div class="zone-source-badge"></div>
+    <div class="stale-tint"></div>
+    <div class="stale-label">STALE</div>
+    <div class="flow-arrow">
+      <!-- Arrow SVG pointing RIGHT (→). CSS rotate() applies flow_direction directly
+           because flow_direction=0 means east in image-space (x-axis right),
+           which matches the unrotated rightward arrow; rotate(+Ndeg) spins clockwise. -->
+      <svg width="28" height="14" viewBox="0 0 28 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <line x1="2" y1="7" x2="22" y2="7" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+        <polyline points="16,2 26,7 16,12" stroke="white" stroke-width="2.5" stroke-linejoin="round" fill="none"/>
+      </svg>
+    </div>
     <span class="zone-label" style="${isNarrow ? 'font-size:8px;writing-mode:vertical-rl' : ''}">${t(zid)}</span>
     <span class="zone-icon">🟢</span>
     <span class="zone-count">0</span>
-    <span class="zone-pct">0%</span>`;
+    <span class="zone-pct">0%</span>
+    <span class="zone-fps"></span>
+    <span class="zone-gate"></span>`;
   stadium.appendChild(el);
 }
 
@@ -384,6 +487,11 @@ function connect() {
 }
 
 function handleMessage(msg) {
+  // New-style events from api/websocket_handler.py
+  if (msg.event === 'zone_update')  { updateZoneFromUpdate(msg.data); return; }
+  if (msg.event === 'zone_stale')   { markZoneStale(msg.zone_id, msg.stale_since); return; }
+  if (msg.event === 'agent_action') { updateAgentAction(msg.data); return; }
+  // Legacy {channel, data} envelope
   const {channel, data} = msg;
   if (channel === 'broadcast:zone_metrics') updateZones(data);
   else if (channel === 'pos:match_clock')   updateClock(data);
@@ -437,6 +545,199 @@ function updateZones(data) {
   }
   document.getElementById('mCrowd').textContent = total.toLocaleString();
   updateSystemMode(maxSev);
+}
+
+// ── ZoneUpdate handler (new pipeline) ───────────────────────────────────────
+// Tracks per-zone ZoneUpdate data for the System Health panel
+const _zuCache = {};        // zone_id → latest ZoneUpdate
+const _staleZones = new Set();  // zone_ids currently marked stale
+
+// Return density-based colour using CSS variables defined in :root
+function densityColour(density) {
+  if (density < 1.0) return getComputedStyle(document.documentElement).getPropertyValue('--density-green').trim();
+  if (density < 2.5) return getComputedStyle(document.documentElement).getPropertyValue('--density-yellow').trim();
+  if (density < 4.0) return getComputedStyle(document.documentElement).getPropertyValue('--density-orange').trim();
+  return getComputedStyle(document.documentElement).getPropertyValue('--density-red').trim();
+}
+
+function updateZoneFromUpdate(data) {
+  const zid = data.zone_id;
+  if (!zid) return;
+
+  _zuCache[zid] = data;
+  _staleZones.delete(zid);  // receiving a fresh update removes stale status
+
+  const el = document.getElementById(`z-${zid}`);
+  if (!el) return;
+
+  const density = data.density ?? 0;
+  const colour  = densityColour(density);
+
+  // ── Background colour from density ──────────────────────────────────────
+  el.style.background   = hexAlpha(colour, 0.42);
+  el.style.borderColor  = hexAlpha(colour, 0.55);
+
+  // Count/pct display
+  const count = Math.round(data.smoothed_count ?? data.raw_count ?? 0);
+  el.querySelector('.zone-count').textContent = count.toLocaleString();
+
+  // density as a quick percentage proxy (cap at 6.0 p/m² = 100 %)
+  const pct = Math.min(100, Math.round((density / 6.0) * 100));
+  el.querySelector('.zone-pct').textContent = `${pct}%`;
+
+  // ── Source badge ─────────────────────────────────────────────────────────
+  const badge = el.querySelector('.zone-source-badge');
+  if (badge) {
+    badge.style.display = 'block';
+    badge.className = 'zone-source-badge';
+    const src = data.source || '';
+    if (src === 'cv_dense')       { badge.textContent = 'D';   badge.classList.add('badge-cv-dense'); }
+    else if (src === 'cv_yolo')   { badge.textContent = 'Y';   badge.classList.add('badge-cv-yolo'); }
+    else if (src === 'cv')        { badge.textContent = 'CV';  badge.classList.add('badge-cv'); }
+    else if (src === 'simulator') { badge.textContent = 'SIM'; badge.classList.add('badge-simulator'); }
+    else                           { badge.style.display = 'none'; }
+  }
+
+  // ── Staleness tint (cv/sim fresh data → clear it) ───────────────────────
+  const tint  = el.querySelector('.stale-tint');
+  const slbl  = el.querySelector('.stale-label');
+  if (tint)  tint.style.display  = 'none';
+  if (slbl)  slbl.style.display  = 'none';
+  el.style.opacity = '1';
+
+  // ── Flow arrow ───────────────────────────────────────────────────────────
+  // flow_direction = degrees clockwise from east (image-space math convention).
+  // The SVG arrow points right (east) at 0°, so rotate() maps directly.
+  // Arrow opacity scales with flow_magnitude: full opacity at 10 px/frame.
+  const arrowDiv = el.querySelector('.flow-arrow');
+  const mag = data.flow_magnitude ?? 0;
+  if (arrowDiv) {
+    if (mag > 0.5) {
+      const deg     = data.flow_direction ?? 0;
+      const opacity = Math.min(1, mag / 10);
+      arrowDiv.style.display   = 'block';
+      arrowDiv.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`;
+      arrowDiv.style.opacity   = opacity.toFixed(2);
+    } else {
+      arrowDiv.style.display = 'none';
+    }
+  }
+
+  // ── FPS indicator ────────────────────────────────────────────────────────
+  const fpsEl = el.querySelector('.zone-fps');
+  if (fpsEl) {
+    const fps = data.fps ?? 0;
+    fpsEl.textContent = `${fps.toFixed(1)} fps`;
+    fpsEl.className   = `zone-fps${fps < 5 ? ' low' : ''}`;
+  }
+
+  // ── Gate IN / OUT ─────────────────────────────────────────────────────────
+  const gateEl = el.querySelector('.zone-gate');
+  if (gateEl) {
+    const gi = data.gate_in ?? 0;
+    const go = data.gate_out ?? 0;
+    if (gi > 0 || go > 0) {
+      gateEl.textContent = `IN:${gi} OUT:${go}`;
+    } else {
+      gateEl.textContent = '';
+    }
+  }
+
+  // ── Fog-of-war for inactive exterior zones ───────────────────────────────
+  const isFog = el.dataset.ztype === 'exterior'
+    && zid !== 'zone_north_parking'
+    && density < 0.5
+    && count < 50;
+  el.classList.toggle('fog', isFog);
+
+  // Update total crowd display
+  _refreshTotals();
+  // Update System Health panel
+  _refreshHealthPanel();
+}
+
+function markZoneStale(zid, staleSince) {
+  if (!zid) return;
+  _staleZones.add(zid);
+
+  const el = document.getElementById(`z-${zid}`);
+  if (!el) return;
+
+  const tint = el.querySelector('.stale-tint');
+  const slbl = el.querySelector('.stale-label');
+  if (tint) tint.style.display = 'block';
+
+  if (slbl) {
+    const ageS = staleSince ? Math.round(Date.now() / 1000 - staleSince) : '?';
+    slbl.textContent  = `STALE ${ageS}s`;
+    slbl.style.display = 'block';
+  }
+
+  // Hide flow arrow when stale
+  const arrowDiv = el.querySelector('.flow-arrow');
+  if (arrowDiv) arrowDiv.style.display = 'none';
+
+  _refreshHealthPanel();
+}
+
+// ── Agent action handler (new pipeline) ─────────────────────────────────────
+function updateAgentAction(data) {
+  if (!data) return;
+  const pri = (data.priority || '').toUpperCase();
+  const isCrit = pri === 'CRITICAL';
+  const isWarn = pri === 'WARNING' || pri === 'HIGH' || pri === 'MEDIUM';
+
+  // Add to System Health scrolling alert log
+  const log = document.getElementById('healthAlertLog');
+  if (log) {
+    // Clear placeholder if present
+    const placeholder = log.querySelector('span.ha-entry');
+    if (placeholder && placeholder.textContent === 'No alerts') placeholder.remove();
+
+    const entry = document.createElement('div');
+    entry.className = `ha-entry${isCrit ? ' crit' : isWarn ? ' warn' : ''}`;
+    const ts = new Date((data.timestamp || 0) * 1000).toLocaleTimeString();
+    entry.textContent = `${ts} [${data.agent || '?'}] ${data.action} — ${data.zone_id || ''}`;
+    log.prepend(entry);
+    while (log.children.length > 20) log.removeChild(log.lastChild);
+  }
+}
+
+// ── Total crowd from ZoneUpdate cache ────────────────────────────────────────
+function _refreshTotals() {
+  let total = 0;
+  for (const [zid, z] of Object.entries(_zuCache)) {
+    const layout = ZONE_LAYOUT[zid];
+    if (layout && layout.type === 'interior') {
+      total += Math.round(z.smoothed_count ?? z.raw_count ?? 0);
+    }
+  }
+  if (total > 0) {
+    document.getElementById('mCrowd').textContent = total.toLocaleString();
+  }
+}
+
+// ── System Health panel refresh ───────────────────────────────────────────────
+function _refreshHealthPanel() {
+  const liveEl  = document.getElementById('hLive');
+  const staleEl = document.getElementById('hStale');
+  const fpsEl   = document.getElementById('hFps');
+
+  const allZones = Object.keys(_zuCache);
+  const staleCount = _staleZones.size;
+  const liveCount  = Math.max(0, allZones.length - staleCount);
+
+  if (liveEl)  liveEl.textContent  = liveCount;
+  if (staleEl) {
+    staleEl.textContent = staleCount;
+    staleEl.className   = `hs-value${staleCount > 0 ? ' warn' : ''}`;
+  }
+
+  if (fpsEl && allZones.length > 0) {
+    const avgFps = allZones.reduce((s, zid) => s + (_zuCache[zid].fps ?? 0), 0) / allZones.length;
+    fpsEl.textContent = avgFps.toFixed(1);
+    fpsEl.className   = `hs-value${avgFps < 5 ? ' crit' : avgFps < 15 ? ' warn' : ''}`;
+  }
 }
 
 // ── Clock update ─────────────────────────────────────────────────────────────
