@@ -1,26 +1,36 @@
 {
   "zones": {
-    "parking_lot": {
-      "type": "general",
-      "roi": {"x": 0, "y": 0, "w": 640, "h": 480},
-      "area_sqm": 2500,
-      "video_source": "feeds/parking.mp4",
-      "calibration_factor": 0.003
-    },
-    "gate_a": {
+    "gate_main": {
       "type": "gate",
-      "roi": {"x": 0, "y": 0, "w": 640, "h": 480},
-      "area_sqm": 50,
-      "video_source": "feeds/gate_a.mp4",
-      "tripwire": {"p1": [320, 0], "p2": [320, 480]},
-      "in_direction": "right"
+      "roi": {"x": 0, "y": 0, "w": 1920, "h": 1080},
+      "area_sqm": 60,
+      "video_source": "feeds/real_gate_main.mp4",
+      "tripwire": {"p1": [960, 0], "p2": [960, 1080]},
+      "in_direction": "right",
+      "capacity": 200
     },
-    "concourse_north": {
+    "gate_vip": {
+      "type": "gate",
+      "roi": {"x": 0, "y": 0, "w": 1920, "h": 1080},
+      "area_sqm": 40,
+      "video_source": "feeds/real_gate_vip.mp4",
+      "tripwire": {"p1": [0, 540], "p2": [1920, 540]},
+      "in_direction": "down",
+      "capacity": 100
+    },
+    "concourse_main": {
       "type": "general",
-      "roi": {"x": 100, "y": 50, "w": 440, "h": 380},
-      "area_sqm": 800,
-      "video_source": "feeds/concourse.mp4",
-      "calibration_factor": 0.005
+      "roi": {"x": 3, "y": 236, "w": 943, "h": 595},
+      "area_sqm": 400,
+      "video_source": "feeds/real_concourse.mp4",
+      "calibration_factor": 0.037040
+    },
+    "stands_east": {
+      "type": "general",
+      "roi": {"x": 71, "y": 52, "w": 1575, "h": 1018},
+      "area_sqm": 1200,
+      "video_source": "feeds/real_stands_dense.mp4",
+      "calibration_factor": 0.071173
     }
   }
 }

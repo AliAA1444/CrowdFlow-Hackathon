@@ -18,24 +18,61 @@
   --density-yellow:#eab308;  /* 1.0 – 2.5  */
   --density-orange:#f97316;  /* 2.5 – 4.0  */
   --density-red:#ef4444;     /* > 4.0      */
+  /* Agent feed */
+  --agent-feed-w:350px;
+  --card-slide-duration:.25s;
 }
 body{font-family:var(--font-en);background:var(--bg);color:var(--text);font-size:13px;overflow:hidden;height:100vh}
 body.ar{font-family:var(--font-ar);font-size:14px;letter-spacing:normal}
 a{color:var(--blue)}
 
+/* ── Critical-alert page-border flash ────────────────────────────────────── */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  border:4px solid transparent;box-sizing:border-box
+}
+@keyframes criticalFlash{
+  0%  {border-color:#ef4444;opacity:1}
+  70% {border-color:#ef4444;opacity:.6}
+  100%{border-color:transparent;opacity:0}
+}
+body.critical-flash::after{animation:criticalFlash .5s ease-out forwards}
+
 /* ── layout ───────────────────────────────────────────────────────────────── */
-.app{display:grid;grid-template-rows:48px 1fr;grid-template-columns:1fr 350px;height:100vh}
-.header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding-inline:20px;background:var(--surface);border-bottom:1px solid var(--border);z-index:10}
-.header h1{font-size:16px;font-weight:700;letter-spacing:1px}
-[dir="rtl"] .header h1{letter-spacing:normal}
-.header-right{display:flex;align-items:center;gap:12px}
+.app{
+  display:grid;
+  grid-template-rows:48px 1fr;
+  grid-template-columns:1fr var(--agent-feed-w);
+  height:100vh
+}
+
+/* ── System overview bar ──────────────────────────────────────────────────── */
+.system-bar{
+  grid-column:1/-1;display:flex;align-items:center;
+  justify-content:space-between;padding-inline:20px;gap:12px;
+  background:var(--surface);border-bottom:1px solid var(--border);z-index:10
+}
+.sb-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.sb-logo-text{font-size:16px;font-weight:700;letter-spacing:1px}
+[dir="rtl"] .sb-logo-text{letter-spacing:normal}
+.sb-live-badge{
+  background:var(--red);color:#fff;font-size:9px;font-weight:700;
+  padding:2px 6px;border-radius:3px;letter-spacing:1px;
+  animation:pulse 1.5s infinite
+}
+.sb-stats{display:flex;align-items:center;gap:16px;flex:1;justify-content:center}
+.sb-stat{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);white-space:nowrap}
+.sb-stat-val{font-weight:700;color:var(--text);font-size:13px;font-variant-numeric:tabular-nums}
+.sb-right{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.sb-time{font-size:13px;font-weight:700;letter-spacing:1px;color:var(--blue);font-variant-numeric:tabular-nums}
+.lang-toggle{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:.5px}
+.lang-toggle:hover{border-color:var(--blue)}
 .conn{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
 .dot.on{background:var(--green)}
-.lang-toggle{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:.5px}
-.lang-toggle:hover{border-color:var(--blue)}
+
+/* ── main content area ────────────────────────────────────────────────────── */
 .main{padding:16px;padding-bottom:68px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
-.sidebar{background:var(--surface);border-inline-start:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;width:350px;min-width:350px;max-width:350px;flex-shrink:0}
 
 /* ── emergency banner ─────────────────────────────────────────────────────── */
 .emergency-banner{display:none;grid-column:1/-1;background:var(--red);color:#fff;text-align:center;padding:10px;font-weight:700;font-size:15px;animation:pulse 1s infinite}
@@ -58,8 +95,6 @@ a{color:var(--blue)}
 .stadium-section{flex-shrink:0}
 .stadium-section h2{font-size:11px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
 [dir="rtl"] .stadium-section h2{letter-spacing:normal;text-align:right}
-/* The map uses direction:ltr so RTL never flips pixel coordinates.
-   Zone text uses unicode-bidi:plaintext so Arabic still renders correctly. */
 .stadium{
   position:relative;width:700px;height:500px;
   background:
@@ -86,6 +121,26 @@ a{color:var(--blue)}
 .zone .zone-fps{font-size:8px;color:var(--dim);line-height:1}
 .zone .zone-fps.low{color:var(--red)}
 
+/* ── Feed status dot ────────────────────────────────────────────────────── */
+.feed-dot{
+  width:8px;height:8px;border-radius:50%;display:inline-block;
+  position:absolute;bottom:4px;right:4px;z-index:5
+}
+.feed-dot.live{background:#22c55e;animation:pulse 2s infinite}
+.feed-dot.dead{background:#ef4444}
+
+/* ── Cross-calibration status panel ────────────────────────────────────── */
+.cal-panel{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.cal-panel .hs-label{margin-bottom:4px}
+.cal-entries{display:flex;flex-wrap:wrap;gap:6px}
+.cal-entry{
+  font-size:9px;padding:3px 7px;border-radius:4px;
+  border:1px solid var(--border);background:rgba(255,255,255,.03);line-height:1.6
+}
+.cal-entry .cal-zone{font-weight:700}
+.cal-entry .cal-meta{color:var(--dim)}
+.cal-entry .cal-badge{font-weight:700;margin-left:4px}
+
 /* ── Gate IN/OUT row ────────────────────────────────────────────────────── */
 .zone .zone-gate{font-size:8px;color:var(--blue);line-height:1;white-space:nowrap}
 
@@ -102,12 +157,9 @@ a{color:var(--blue)}
 
 /* ── Staleness overlay ──────────────────────────────────────────────────── */
 .stale-tint{
-  display:none;
-  position:absolute;inset:0;
-  background:rgba(234,179,8,.18);
-  border:2px solid rgba(234,179,8,.6);
-  border-radius:6px;
-  pointer-events:none;z-index:2
+  display:none;position:absolute;inset:0;
+  background:rgba(234,179,8,.18);border:2px solid rgba(234,179,8,.6);
+  border-radius:6px;pointer-events:none;z-index:2
 }
 .stale-label{
   position:absolute;bottom:3px;left:0;right:0;text-align:center;
@@ -117,12 +169,8 @@ a{color:var(--blue)}
 
 /* ── Flow arrow ─────────────────────────────────────────────────────────── */
 .flow-arrow{
-  position:absolute;
-  /* centred on the zone */
-  top:50%;left:50%;
-  transform:translate(-50%,-50%);
-  pointer-events:none;z-index:4;
-  display:none;
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);pointer-events:none;z-index:4;display:none
 }
 .flow-arrow svg{display:block}
 
@@ -149,7 +197,7 @@ a{color:var(--blue)}
 
 /* ── demo controls (fixed footer) ─────────────────────────────────────────── */
 .controls{
-  position:fixed;bottom:0;inset-inline-start:0;width:calc(100% - 350px);
+  position:fixed;bottom:0;inset-inline-start:0;width:calc(100% - var(--agent-feed-w));
   z-index:1000;display:flex;align-items:center;flex-wrap:wrap;gap:6px;
   padding:8px 16px;background:var(--surface);border-top:1px solid var(--border)
 }
@@ -166,15 +214,72 @@ a{color:var(--blue)}
 .cam-dot{width:7px;height:7px;border-radius:50%;background:var(--dim);flex-shrink:0}
 .cam-dot.active{background:var(--green)}
 
-/* ── sidebar ──────────────────────────────────────────────────────────────── */
-.sidebar-header{padding:12px 14px;border-bottom:1px solid var(--border);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--dim);text-align:start;flex-shrink:0}
-[dir="rtl"] .sidebar-header{letter-spacing:normal}
-.log{flex:1;overflow-y:auto;padding:6px}
+/* ── Agent Decision Feed ──────────────────────────────────────────────────── */
+.agent-feed{
+  background:var(--surface);border-inline-start:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+  width:var(--agent-feed-w);min-width:var(--agent-feed-w);max-width:var(--agent-feed-w);flex-shrink:0
+}
+.feed-header{padding:12px 14px 8px;border-bottom:1px solid var(--border);flex-shrink:0}
+.feed-header h2{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text)}
+[dir="rtl"] .feed-header h2{letter-spacing:normal}
+.feed-subtitle{font-size:10px;color:var(--dim);margin-top:2px}
+
+/* ── Summary counters ────────────────────────────────────────────────────── */
+.feed-counters{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+  padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0
+}
+.feed-counter{
+  background:rgba(255,255,255,.03);border:1px solid var(--border);
+  border-radius:6px;padding:6px 4px;text-align:center
+}
+.feed-counter .fc-count{font-size:20px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.feed-counter .fc-label{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin-top:2px}
+.feed-counter.alerts  .fc-count{color:var(--red)}
+.feed-counter.reroutes .fc-count{color:var(--blue)}
+.feed-counter.deals   .fc-count{color:var(--green)}
+
+/* ── Feed list ───────────────────────────────────────────────────────────── */
+.feed-list{flex:1;overflow-y:auto;padding:6px;display:flex;flex-direction:column;gap:4px}
+
+/* ── Feed cards (agent_action events) ───────────────────────────────────── */
+@keyframes slideInCard{
+  from{transform:translateX(16px);opacity:0}
+  to  {transform:translateX(0);   opacity:1}
+}
+.feed-card{
+  border-radius:6px;background:rgba(255,255,255,.025);
+  border:1px solid var(--border);border-inline-start:3px solid var(--dim);
+  padding:8px 10px;font-size:11px;line-height:1.5;text-align:start;
+  animation:slideInCard var(--card-slide-duration) ease-out;
+  word-break:break-word
+}
+.feed-card.priority-critical{border-inline-start-color:#ef4444}
+.feed-card.priority-high    {border-inline-start-color:#f97316}
+.feed-card.priority-medium  {border-inline-start-color:#eab308}
+.feed-card.priority-low     {border-inline-start-color:#22c55e}
+.card-top{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:3px}
+.card-ts{font-size:9px;color:var(--dim);flex-shrink:0;font-variant-numeric:tabular-nums}
+.agent-badge{
+  font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;
+  flex-shrink:0;text-transform:uppercase;letter-spacing:.3px
+}
+.agent-badge.safety    {background:rgba(239,68,68,.2);  color:#f87171}
+.agent-badge.crowd_flow{background:rgba(59,130,246,.2); color:#93c5fd}
+.agent-badge.concession{background:rgba(34,197,94,.2);  color:#4ade80}
+.agent-badge.default   {background:rgba(168,85,247,.2); color:#d8b4fe}
+.card-action{font-weight:700;font-size:11px;color:var(--text)}
+.card-detail{font-size:10px;color:var(--dim);margin-top:2px;line-height:1.4}
+.card-zone{font-size:9px;color:var(--blue);margin-top:3px}
+
+/* ── Legacy log-entry style (dashboard:actions) — shown in same feed list ── */
 .log-entry{
-  padding:8px 10px;margin-bottom:5px;border-radius:6px;
+  padding:8px 10px;border-radius:6px;
   border-inline-start:3px solid var(--dim);background:rgba(255,255,255,.02);
   font-size:11px;line-height:1.5;text-align:start;
-  word-break:break-word;overflow-wrap:break-word
+  word-break:break-word;overflow-wrap:break-word;
+  animation:slideInCard var(--card-slide-duration) ease-out
 }
 .log-entry.approved{border-inline-start-color:var(--green)}
 .log-entry.denied{border-inline-start-color:var(--red);opacity:.75}
@@ -187,14 +292,44 @@ a{color:var(--blue)}
 .log-entry .le-note{color:var(--dim);font-size:10px;margin-top:2px;font-style:italic}
 .log-entry .le-target{color:#93c5fd;font-size:10px;margin-top:1px}
 .log-entry.medical-entry{border-inline-start-color:#c084fc}
+
+/* ── Mobile responsiveness — stack feed below map ─────────────────────────── */
+@media(max-width:900px){
+  body{overflow:auto;height:auto}
+  .app{
+    grid-template-columns:1fr;
+    grid-template-rows:48px auto auto;
+    height:auto;min-height:100vh
+  }
+  .agent-feed{
+    width:100%;min-width:unset;max-width:unset;
+    border-inline-start:none;border-top:1px solid var(--border);
+    height:420px
+  }
+  .main{padding-bottom:16px}
+  .controls{width:100%;position:relative;bottom:auto}
+  .metrics{grid-template-columns:repeat(3,1fr)}
+  .sb-stats{display:none}
+}
 </style>
 </head>
 <body>
 <div class="emergency-banner" id="emergencyBanner">EMERGENCY ACTIVE — EVACUATION IN PROGRESS</div>
 <div class="app">
-  <header class="header">
-    <h1>⚡ CROWDFLOW</h1>
-    <div class="header-right">
+
+  <!-- System Overview Bar -->
+  <header class="system-bar" id="systemBar">
+    <div class="sb-logo">
+      <span class="sb-logo-text">⚡ CROWDFLOW</span>
+      <span class="sb-live-badge">LIVE</span>
+    </div>
+    <div class="sb-stats">
+      <span class="sb-stat"><span class="sb-stat-val" id="sbZones">10</span> Zones</span>
+      <span class="sb-stat"><span class="sb-stat-val" id="sbFeeds">0</span> Live Feeds</span>
+      <span class="sb-stat"><span class="sb-stat-val" id="sbActions">0</span> Actions/60s</span>
+    </div>
+    <div class="sb-right">
+      <span class="sb-time" id="sbTime">--:--:--</span>
       <button class="lang-toggle" id="langToggle" onclick="toggleLang()">EN | AR</button>
       <div class="conn"><span class="dot" id="connDot"></span><span id="connLabel">Disconnected</span></div>
     </div>
@@ -212,10 +347,10 @@ a{color:var(--blue)}
     </div>
 
     <!-- Stadium map -->
-    <div class="stadium-section">
+    <section class="stadium-section">
       <h2 data-i18n="stadium_map">Stadium Map</h2>
       <div class="stadium" id="stadium"><!-- zones injected by JS --></div>
-    </div>
+    </section>
 
     <!-- System Health panel -->
     <div>
@@ -238,6 +373,13 @@ a{color:var(--blue)}
           <div class="health-alert-log" id="healthAlertLog">
             <span class="ha-entry" style="color:var(--dim)">No alerts</span>
           </div>
+        </div>
+      </div>
+      <!-- Cross-calibration status -->
+      <div class="cal-panel">
+        <div class="hs-label">Cross-Calibration Status</div>
+        <div class="cal-entries" id="calEntries">
+          <span style="font-size:9px;color:var(--dim)">Waiting for calibration data…</span>
         </div>
       </div>
     </div>
@@ -275,12 +417,30 @@ a{color:var(--blue)}
     </div>
   </div>
 
-  <!-- Sidebar: decision log -->
-  <aside class="sidebar">
-    <div class="sidebar-header" data-i18n="agent_decisions">Agent Decisions</div>
-    <div class="log" id="decisionLog"></div>
+  <!-- Agent Decision Feed -->
+  <aside class="agent-feed">
+    <section class="feed-header">
+      <h2>AI Agent Decisions</h2>
+      <p class="feed-subtitle">Real-time autonomous actions</p>
+    </section>
+    <div class="feed-counters" aria-label="Rolling 60-second action counts">
+      <div class="feed-counter alerts">
+        <div class="fc-count" id="fcAlerts">0</div>
+        <div class="fc-label">Alerts</div>
+      </div>
+      <div class="feed-counter reroutes">
+        <div class="fc-count" id="fcReroutes">0</div>
+        <div class="fc-label">Reroutes</div>
+      </div>
+      <div class="feed-counter deals">
+        <div class="fc-count" id="fcDeals">0</div>
+        <div class="fc-label">Deals</div>
+      </div>
+    </div>
+    <div class="feed-list" id="decisionLog" role="log" aria-live="polite"></div>
   </aside>
-</div>
+
+</div><!-- .app -->
 
 <script>
 const API = location.origin;
@@ -315,9 +475,8 @@ const ACTION_AR = {
 };
 
 // ── Zone layout (pixel positions on 700×500 map) ────────────────────────────
-// direction:ltr on .stadium keeps these coords stable in RTL page mode.
 const ZONE_LAYOUT = {
-  zone_north_parking:   {left:100, top:410, w:500, h:80,  type:'exterior'},   // bottom — hero live camera
+  zone_north_parking:   {left:100, top:410, w:500, h:80,  type:'exterior'},
   zone_north_gate:      {left:50,  top:64,  w:300, h:62,  type:'interior'},
   zone_west_stand:      {left:50,  top:132, w:58,  h:200, type:'interior'},
   zone_north_concourse: {left:110, top:132, w:225, h:48,  type:'interior'},
@@ -342,7 +501,6 @@ const I18N = {
     emergency_banner:'EMERGENCY ACTIVE — EVACUATION IN PROGRESS',
     medical_banner:'MEDICAL EMERGENCY — FOLLOW STAFF INSTRUCTIONS',
     mode_normal:'NORMAL', mode_standstill:'STANDSTILL', mode_emergency:'EMERGENCY', mode_medical:'MEDICAL',
-    // Zone labels
     zone_north_gate:'North Gate', zone_south_gate:'South Gate',
     zone_east_stand:'East Stand', zone_west_stand:'West Stand',
     zone_north_concourse:'N. Concourse', zone_south_concourse:'S. Concourse',
@@ -394,13 +552,11 @@ function applyLang() {
     el.textContent = t(key);
   });
 
-  // Update zone labels
   document.querySelectorAll('.zone').forEach(el => {
     const zid = el.dataset.zid;
     if (zid) el.querySelector('.zone-label').textContent = t(zid);
   });
 
-  // Update legend names
   buildLegend();
 }
 
@@ -433,9 +589,6 @@ for (const [zid, pos] of Object.entries(ZONE_LAYOUT)) {
     <div class="stale-tint"></div>
     <div class="stale-label">STALE</div>
     <div class="flow-arrow">
-      <!-- Arrow SVG pointing RIGHT (→). CSS rotate() applies flow_direction directly
-           because flow_direction=0 means east in image-space (x-axis right),
-           which matches the unrotated rightward arrow; rotate(+Ndeg) spins clockwise. -->
       <svg width="28" height="14" viewBox="0 0 28 14" fill="none" xmlns="http://www.w3.org/2000/svg">
         <line x1="2" y1="7" x2="22" y2="7" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
         <polyline points="16,2 26,7 16,12" stroke="white" stroke-width="2.5" stroke-linejoin="round" fill="none"/>
@@ -446,15 +599,73 @@ for (const [zid, pos] of Object.entries(ZONE_LAYOUT)) {
     <span class="zone-count">0</span>
     <span class="zone-pct">0%</span>
     <span class="zone-fps"></span>
-    <span class="zone-gate"></span>`;
+    <span class="zone-gate"></span>
+    <span class="feed-dot dead" title="Feed status"></span>`;
   stadium.appendChild(el);
 }
 
 // ── State & counters ─────────────────────────────────────────────────────────
 let decisionCount = 0;
 let alertCount = 0;
-let systemSeverity = 0;  // 0=normal 4=standstill 5=emergency 6=medical
+let systemSeverity = 0;
 let ws;
+
+// ── Rolling 60-second action window ─────────────────────────────────────────
+// Each entry: {type: 'alert'|'reroute'|'deal'|'other', ts: epochSeconds}
+const _actionWindow = [];
+
+function _getActionType(action) {
+  const a = (action || '').toUpperCase();
+  if (a.includes('ALERT') || a.includes('EMERGENCY') || a.includes('SAFETY') ||
+      a.includes('MEDICAL') || a.includes('CRUSH') || a.includes('WARNING')) return 'alert';
+  if (a.includes('REROUTE') || a.includes('REDIRECT') || a.includes('TRAFFIC') ||
+      a.includes('FAN') || a.includes('DIVERT')) return 'reroute';
+  if (a.includes('DEAL') || a.includes('PRICE') || a.includes('PROMO') ||
+      a.includes('DISCOUNT') || a.includes('CONCESSION') || a.includes('OFFER')) return 'deal';
+  return 'other';
+}
+
+function _refreshFeedCounters() {
+  const now = Date.now() / 1000;
+  const cutoff = now - 60;
+  while (_actionWindow.length && _actionWindow[0].ts < cutoff) _actionWindow.shift();
+
+  let alerts = 0, reroutes = 0, deals = 0;
+  for (const a of _actionWindow) {
+    if (a.type === 'alert')   alerts++;
+    else if (a.type === 'reroute') reroutes++;
+    else if (a.type === 'deal')    deals++;
+  }
+
+  const fcAlerts   = document.getElementById('fcAlerts');
+  const fcReroutes = document.getElementById('fcReroutes');
+  const fcDeals    = document.getElementById('fcDeals');
+  if (fcAlerts)   fcAlerts.textContent   = alerts;
+  if (fcReroutes) fcReroutes.textContent = reroutes;
+  if (fcDeals)    fcDeals.textContent    = deals;
+
+  const sbActions = document.getElementById('sbActions');
+  if (sbActions) sbActions.textContent = _actionWindow.length;
+}
+
+// ── System clock ─────────────────────────────────────────────────────────────
+function _updateSystemClock() {
+  const now = new Date();
+  const hh  = String(now.getHours()).padStart(2, '0');
+  const mm  = String(now.getMinutes()).padStart(2, '0');
+  const ss  = String(now.getSeconds()).padStart(2, '0');
+  const el  = document.getElementById('sbTime');
+  if (el) el.textContent = `${hh}:${mm}:${ss}`;
+}
+
+// ── System bar feed stats ─────────────────────────────────────────────────────
+function _updateSystemBarStats() {
+  const liveZones = Object.keys(_zuCache).length - _staleZones.size;
+  const sbFeeds = document.getElementById('sbFeeds');
+  if (sbFeeds) sbFeeds.textContent = Math.max(0, liveZones);
+  const sbZones = document.getElementById('sbZones');
+  if (sbZones) sbZones.textContent = Object.keys(ZONE_LAYOUT).length;
+}
 
 // ── System mode card update ──────────────────────────────────────────────────
 function updateSystemMode(severity) {
@@ -487,33 +698,27 @@ function connect() {
 }
 
 function handleMessage(msg) {
-  // New-style events from api/websocket_handler.py
   if (msg.event === 'zone_update')  { updateZoneFromUpdate(msg.data); return; }
   if (msg.event === 'zone_stale')   { markZoneStale(msg.zone_id, msg.stale_since); return; }
   if (msg.event === 'agent_action') { updateAgentAction(msg.data); return; }
-  // Legacy {channel, data} envelope
   const {channel, data} = msg;
   if (channel === 'broadcast:zone_metrics') updateZones(data);
   else if (channel === 'pos:match_clock')   updateClock(data);
   else if (channel === 'dashboard:actions') updateAction(data);
 }
 
-// ── Zone update ──────────────────────────────────────────────────────────────
-// Persistent zone cache — never cleared, always holds last known value per zone
+// ── Zone update (legacy broadcast:zone_metrics) ──────────────────────────────
 const _zoneCache = {};
 
 function updateZones(data) {
-  // Update cache with incoming zones first
   for (const z of (data.zones || [])) {
     _zoneCache[z.zone_id] = z;
   }
 
-  // Compute total from full cache (all zones, not just current message)
   let total = 0;
   let maxSev = 0;
   for (const [zid, z] of Object.entries(_zoneCache)) {
     _recordCameraZone(z);
-    // Only count interior zones toward stadium attendance total
     const zLayout = ZONE_LAYOUT[z.zone_id];
     const isInterior = zLayout ? zLayout.type === 'interior' : !['zone_north_parking','zone_activation_1','zone_activation_2'].includes(z.zone_id);
     const count = z.person_count ?? z.occupancy ?? 0;
@@ -533,7 +738,6 @@ function updateZones(data) {
     el.querySelector('.zone-count').textContent = count.toLocaleString();
     el.querySelector('.zone-pct').textContent   = `${pct}%`;
 
-    // Fog of war for inactive exterior zones (never fog the live camera zone)
     const isFog = el.dataset.ztype === 'exterior'
       && z.zone_id !== 'zone_north_parking'
       && stateKey === 'free_flow'
@@ -548,11 +752,9 @@ function updateZones(data) {
 }
 
 // ── ZoneUpdate handler (new pipeline) ───────────────────────────────────────
-// Tracks per-zone ZoneUpdate data for the System Health panel
-const _zuCache = {};        // zone_id → latest ZoneUpdate
-const _staleZones = new Set();  // zone_ids currently marked stale
+const _zuCache = {};
+const _staleZones = new Set();
 
-// Return density-based colour using CSS variables defined in :root
 function densityColour(density) {
   if (density < 1.0) return getComputedStyle(document.documentElement).getPropertyValue('--density-green').trim();
   if (density < 2.5) return getComputedStyle(document.documentElement).getPropertyValue('--density-yellow').trim();
@@ -565,7 +767,7 @@ function updateZoneFromUpdate(data) {
   if (!zid) return;
 
   _zuCache[zid] = data;
-  _staleZones.delete(zid);  // receiving a fresh update removes stale status
+  _staleZones.delete(zid);
 
   const el = document.getElementById(`z-${zid}`);
   if (!el) return;
@@ -573,42 +775,51 @@ function updateZoneFromUpdate(data) {
   const density = data.density ?? 0;
   const colour  = densityColour(density);
 
-  // ── Background colour from density ──────────────────────────────────────
   el.style.background   = hexAlpha(colour, 0.42);
   el.style.borderColor  = hexAlpha(colour, 0.55);
 
-  // Count/pct display
   const count = Math.round(data.smoothed_count ?? data.raw_count ?? 0);
   el.querySelector('.zone-count').textContent = count.toLocaleString();
 
-  // density as a quick percentage proxy (cap at 6.0 p/m² = 100 %)
   const pct = Math.min(100, Math.round((density / 6.0) * 100));
   el.querySelector('.zone-pct').textContent = `${pct}%`;
 
-  // ── Source badge ─────────────────────────────────────────────────────────
   const badge = el.querySelector('.zone-source-badge');
+  const src = data.source || '';
+  const srcBase = src.split(':')[0];
   if (badge) {
     badge.style.display = 'block';
     badge.className = 'zone-source-badge';
-    const src = data.source || '';
-    if (src === 'cv_dense')       { badge.textContent = 'D';   badge.classList.add('badge-cv-dense'); }
-    else if (src === 'cv_yolo')   { badge.textContent = 'Y';   badge.classList.add('badge-cv-yolo'); }
-    else if (src === 'cv')        { badge.textContent = 'CV';  badge.classList.add('badge-cv'); }
-    else if (src === 'simulator') { badge.textContent = 'SIM'; badge.classList.add('badge-simulator'); }
-    else                           { badge.style.display = 'none'; }
+    if (srcBase === 'cv_dense')       { badge.textContent = 'D';   badge.classList.add('badge-cv-dense'); }
+    else if (src === 'cv_yolo')       { badge.textContent = 'Y';   badge.classList.add('badge-cv-yolo'); }
+    else if (src === 'cv')            { badge.textContent = 'CV';  badge.classList.add('badge-cv'); }
+    else if (src === 'simulator')     { badge.textContent = 'SIM'; badge.classList.add('badge-simulator'); }
+    else                               { badge.style.display = 'none'; }
   }
 
-  // ── Staleness tint (cv/sim fresh data → clear it) ───────────────────────
+  const feedDot = el.querySelector('.feed-dot');
+  if (feedDot) {
+    const fps  = data.fps ?? 0;
+    const live = fps > 0 && src !== 'stale_fallback';
+    feedDot.className = `feed-dot ${live ? 'live' : 'dead'}`;
+    feedDot.title     = live ? `${fps.toFixed(1)} fps` : (src === 'stale_fallback' ? 'Stale' : 'No signal');
+  }
+
+  const calData = _parseCalData(src);
+  if (calData) {
+    _calCache[zid] = { factor: calData.factor, confidence: calData.confidence };
+    _refreshCalibrationPanel();
+  } else if ((srcBase === 'cv_dense') && !_calCache[zid]) {
+    _calCache[zid] = { factor: 0, confidence: 0 };
+    _refreshCalibrationPanel();
+  }
+
   const tint  = el.querySelector('.stale-tint');
   const slbl  = el.querySelector('.stale-label');
   if (tint)  tint.style.display  = 'none';
   if (slbl)  slbl.style.display  = 'none';
   el.style.opacity = '1';
 
-  // ── Flow arrow ───────────────────────────────────────────────────────────
-  // flow_direction = degrees clockwise from east (image-space math convention).
-  // The SVG arrow points right (east) at 0°, so rotate() maps directly.
-  // Arrow opacity scales with flow_magnitude: full opacity at 10 px/frame.
   const arrowDiv = el.querySelector('.flow-arrow');
   const mag = data.flow_magnitude ?? 0;
   if (arrowDiv) {
@@ -623,7 +834,6 @@ function updateZoneFromUpdate(data) {
     }
   }
 
-  // ── FPS indicator ────────────────────────────────────────────────────────
   const fpsEl = el.querySelector('.zone-fps');
   if (fpsEl) {
     const fps = data.fps ?? 0;
@@ -631,7 +841,6 @@ function updateZoneFromUpdate(data) {
     fpsEl.className   = `zone-fps${fps < 5 ? ' low' : ''}`;
   }
 
-  // ── Gate IN / OUT ─────────────────────────────────────────────────────────
   const gateEl = el.querySelector('.zone-gate');
   if (gateEl) {
     const gi = data.gate_in ?? 0;
@@ -643,16 +852,13 @@ function updateZoneFromUpdate(data) {
     }
   }
 
-  // ── Fog-of-war for inactive exterior zones ───────────────────────────────
   const isFog = el.dataset.ztype === 'exterior'
     && zid !== 'zone_north_parking'
     && density < 0.5
     && count < 50;
   el.classList.toggle('fog', isFog);
 
-  // Update total crowd display
   _refreshTotals();
-  // Update System Health panel
   _refreshHealthPanel();
 }
 
@@ -673,33 +879,93 @@ function markZoneStale(zid, staleSince) {
     slbl.style.display = 'block';
   }
 
-  // Hide flow arrow when stale
   const arrowDiv = el.querySelector('.flow-arrow');
   if (arrowDiv) arrowDiv.style.display = 'none';
+
+  const feedDot = el.querySelector('.feed-dot');
+  if (feedDot) {
+    feedDot.className = 'feed-dot dead';
+    feedDot.title     = 'Stale';
+  }
 
   _refreshHealthPanel();
 }
 
-// ── Agent action handler (new pipeline) ─────────────────────────────────────
+// ── Agent action handler — new pipeline ─────────────────────────────────────
 function updateAgentAction(data) {
   if (!data) return;
-  const pri = (data.priority || '').toUpperCase();
-  const isCrit = pri === 'CRITICAL';
-  const isWarn = pri === 'WARNING' || pri === 'HIGH' || pri === 'MEDIUM';
+  const pri    = (data.priority || 'low').toLowerCase();
+  const isCrit = pri === 'critical';
+  const isWarn = pri === 'high' || pri === 'medium';
 
-  // Add to System Health scrolling alert log
-  const log = document.getElementById('healthAlertLog');
-  if (log) {
-    // Clear placeholder if present
-    const placeholder = log.querySelector('span.ha-entry');
+  // ── Session metric counters ───────────────────────────────────────────────
+  decisionCount++;
+  document.getElementById('mDecisions').textContent = decisionCount;
+  if (isCrit || isWarn) {
+    alertCount++;
+    document.getElementById('mAlerts').textContent = alertCount;
+  }
+
+  // ── Rolling window + summary counters ─────────────────────────────────────
+  _actionWindow.push({
+    type: _getActionType(data.action),
+    ts: data.timestamp || (Date.now() / 1000),
+  });
+  _refreshFeedCounters();
+
+  // ── System Health alert log ────────────────────────────────────────────────
+  const healthLog = document.getElementById('healthAlertLog');
+  if (healthLog) {
+    const placeholder = healthLog.querySelector('span.ha-entry');
     if (placeholder && placeholder.textContent === 'No alerts') placeholder.remove();
+    const hEntry = document.createElement('div');
+    hEntry.className = `ha-entry${isCrit ? ' crit' : isWarn ? ' warn' : ''}`;
+    const hTs = new Date((data.timestamp || 0) * 1000).toLocaleTimeString();
+    hEntry.textContent = `${hTs} [${data.agent || '?'}] ${data.action} — ${data.zone_id || ''}`;
+    healthLog.prepend(hEntry);
+    while (healthLog.children.length > 20) healthLog.removeChild(healthLog.lastChild);
+  }
 
-    const entry = document.createElement('div');
-    entry.className = `ha-entry${isCrit ? ' crit' : isWarn ? ' warn' : ''}`;
-    const ts = new Date((data.timestamp || 0) * 1000).toLocaleTimeString();
-    entry.textContent = `${ts} [${data.agent || '?'}] ${data.action} — ${data.zone_id || ''}`;
-    log.prepend(entry);
-    while (log.children.length > 20) log.removeChild(log.lastChild);
+  // ── Rich decision card in the feed ────────────────────────────────────────
+  const feedList = document.getElementById('decisionLog');
+  if (feedList) {
+    const card = document.createElement('article');
+    card.className = `feed-card priority-${pri}`;
+
+    const tsDate = data.timestamp ? new Date(data.timestamp * 1000) : new Date();
+    const hh  = String(tsDate.getHours()).padStart(2, '0');
+    const mm  = String(tsDate.getMinutes()).padStart(2, '0');
+    const ss  = String(tsDate.getSeconds()).padStart(2, '0');
+    const timeStr = `${hh}:${mm}:${ss}`;
+
+    const agentRaw   = (data.agent || 'unknown').toLowerCase().replace(/[\s-]/g, '_');
+    const badgeClass = ['safety', 'crowd_flow', 'concession'].includes(agentRaw) ? agentRaw : 'default';
+    const agentLabel = (data.agent || '?').toUpperCase().replace(/_/g, ' ');
+
+    const rawZoneId  = data.zone_id || 'global';
+    const displayZone = currentLang === 'ar'
+      ? (I18N.ar[rawZoneId] || rawZoneId)
+      : (I18N.en[rawZoneId] || rawZoneId);
+
+    card.innerHTML = `
+      <div class="card-top">
+        <span class="card-ts">${timeStr}</span>
+        <span class="agent-badge ${badgeClass}">${agentLabel}</span>
+      </div>
+      <div class="card-action">${data.action || 'ACTION'}</div>
+      <div class="card-detail">${data.detail || ''}</div>
+      <div class="card-zone">📍 ${displayZone}</div>`;
+
+    feedList.prepend(card);
+    while (feedList.children.length > 30) feedList.removeChild(feedList.lastChild);
+  }
+
+  // ── Critical page-border flash ─────────────────────────────────────────────
+  if (isCrit) {
+    document.body.classList.remove('critical-flash');
+    void document.body.offsetWidth; // force reflow to restart animation
+    document.body.classList.add('critical-flash');
+    setTimeout(() => document.body.classList.remove('critical-flash'), 600);
   }
 }
 
@@ -717,13 +983,59 @@ function _refreshTotals() {
   }
 }
 
+// ── Cross-calibration status ──────────────────────────────────────────────────
+const _calCache = {};
+
+function _parseCalData(source) {
+  if (!source || !source.includes('cal@')) return null;
+  const calPart = source.split('cal@')[1];
+  if (!calPart) return null;
+  const parts = calPart.split(':');
+  if (parts.length < 2) return null;
+  const factor     = parseFloat(parts[0]);
+  const confidence = parseInt(parts[1].replace('%',''), 10);
+  if (!isFinite(factor) || !isFinite(confidence)) return null;
+  return { factor, confidence };
+}
+
+function _refreshCalibrationPanel() {
+  const container = document.getElementById('calEntries');
+  if (!container) return;
+
+  const entries = Object.entries(_calCache);
+  if (entries.length === 0) {
+    container.innerHTML = '<span style="font-size:9px;color:var(--dim)">Waiting for calibration data…</span>';
+    return;
+  }
+
+  container.innerHTML = entries.map(([zid, cal]) => {
+    let color, badgeText;
+    if (cal.confidence === 0) {
+      color = 'var(--dim)'; badgeText = 'Using manual baseline';
+    } else if (cal.confidence < 50) {
+      color = 'var(--yellow)'; badgeText = 'Calibrating…';
+    } else {
+      color = 'var(--green)'; badgeText = 'Calibrated';
+    }
+    const samples = Math.round(cal.confidence * 20 / 100);
+    const factorStr = cal.confidence > 0
+      ? ` factor=${cal.factor.toFixed(6)} | confidence=${cal.confidence}% | samples=${samples}`
+      : ' (awaiting ground-truth overlap)';
+    return `<div class="cal-entry">
+      <span class="cal-zone" style="color:${color}">${zid}</span>
+      <span class="cal-meta">${factorStr}</span>
+      <span class="cal-badge" style="color:${color}">[${badgeText}]</span>
+    </div>`;
+  }).join('');
+}
+
 // ── System Health panel refresh ───────────────────────────────────────────────
 function _refreshHealthPanel() {
   const liveEl  = document.getElementById('hLive');
   const staleEl = document.getElementById('hStale');
   const fpsEl   = document.getElementById('hFps');
 
-  const allZones = Object.keys(_zuCache);
+  const allZones   = Object.keys(_zuCache);
   const staleCount = _staleZones.size;
   const liveCount  = Math.max(0, allZones.length - staleCount);
 
@@ -738,6 +1050,8 @@ function _refreshHealthPanel() {
     fpsEl.textContent = avgFps.toFixed(1);
     fpsEl.className   = `hs-value${avgFps < 5 ? ' crit' : avgFps < 15 ? ' warn' : ''}`;
   }
+
+  _updateSystemBarStats();
 }
 
 // ── Clock update ─────────────────────────────────────────────────────────────
@@ -748,7 +1062,7 @@ function updateClock(data) {
   document.getElementById('mRevenue').textContent = `$${(data.total_revenue || 0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}`;
 }
 
-// ── Action update ─────────────────────────────────────────────────────────────
+// ── Action update (legacy dashboard:actions channel) ─────────────────────────
 function updateAction(data) {
   decisionCount++;
   document.getElementById('mDecisions').textContent = decisionCount;
@@ -775,13 +1089,11 @@ function updateAction(data) {
     if (tier === 'standstill') updateSystemMode(4);
   }
 
-  // Build log entry
   const log = document.getElementById('decisionLog');
   const entry = document.createElement('div');
   const status = data.status || 'approved';
   entry.className = `log-entry ${status}${isMedical ? ' medical-entry' : ''}`;
 
-  // Use congestion_color for the border if available
   if (data.congestion_color) {
     entry.style.borderInlineStartColor = data.congestion_color;
   }
@@ -793,7 +1105,6 @@ function updateAction(data) {
   const note = data.orchestrator_note || '';
   const targetZone = data.details?.suggested_target_zone;
 
-  // Translate action and zone for Arabic mode
   const isAr = currentLang === 'ar';
   const displayAction = isAr ? (ACTION_AR[action] || action) : action;
   const displayZone = isAr ? (I18N.ar[rawZoneId] || rawZoneId) : (I18N.en[rawZoneId] || rawZoneId);
@@ -825,10 +1136,12 @@ async function triggerEmergency() {
 async function triggerReset() {
   document.getElementById('emergencyBanner').classList.remove('active', 'medical');
   decisionCount = 0; alertCount = 0; systemSeverity = 0;
+  _actionWindow.length = 0;
   Object.keys(_cameraSeenAt).forEach(k => delete _cameraSeenAt[k]);
   document.getElementById('mDecisions').textContent = '0';
-  document.getElementById('mAlerts').textContent = '0';
-  document.getElementById('decisionLog').innerHTML = '';
+  document.getElementById('mAlerts').textContent    = '0';
+  document.getElementById('decisionLog').innerHTML  = '';
+  _refreshFeedCounters();
   updateSystemMode(0);
   await fetch(`${API}/api/demo/reset`, {method:'POST'});
 }
@@ -841,8 +1154,8 @@ async function triggerMedical() {
   });
 }
 
-// ── Camera status — track active cameras from live WebSocket data ─────────────
-const _cameraSeenAt = {};   // zone_id → last timestamp seen from camera_inference
+// ── Camera status ─────────────────────────────────────────────────────────────
+const _cameraSeenAt = {};
 
 function _recordCameraZone(zone) {
   if (zone.source === 'camera_inference' && zone.camera_id) {
@@ -870,7 +1183,10 @@ function hexAlpha(hex, alpha) {
 buildLegend();
 connect();
 updateSystemMode(0);
+_updateSystemClock();
 setInterval(refreshCameraStatus, 3000);
+setInterval(_updateSystemClock, 1000);
+setInterval(_refreshFeedCounters, 5000);
 </script>
 </body>
 </html>

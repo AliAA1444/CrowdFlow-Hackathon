@@ -40,6 +40,7 @@ class DenseEstimator:
             history=500, varThreshold=50, detectShadows=False
         )
         self._warmup_frames: int = 0
+        self._last_fg_pixels: int = 0
 
     def estimate(self, frame: np.ndarray, roi: tuple[int, int, int, int]) -> int:
         """Estimate crowd count in the given ROI via foreground pixel density.
@@ -72,6 +73,11 @@ class DenseEstimator:
             return -1
 
         fg_pixels = cv2.countNonZero(cleaned_mask)
+        self._last_fg_pixels = fg_pixels
         count = int(fg_pixels * self.calibration_factor)
         logger.debug("DenseEstimator: fg_pixels=%d count=%d", fg_pixels, count)
         return count
+
+    def get_last_fg_pixels(self) -> int:
+        """Return the foreground pixel count from the most recent estimate() call."""
+        return self._last_fg_pixels

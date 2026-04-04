@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from api.websocket_handler import handler as ws_handler
 from config import (
     CONCESSION_STALLS,
     CONGESTION_STATES,
@@ -84,7 +85,18 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.error("Redis connection failed: %s", exc)
         raise
+
+    # Start the shared WebSocket broadcast listener as a background task.
+    # This single Redis subscriber fans out to all connected dashboard clients.
+    listener_task = asyncio.create_task(ws_handler.run_redis_listener(redis_pool))
+
     yield
+
+    listener_task.cancel()
+    try:
+        await listener_task
+    except asyncio.CancelledError:
+        pass
     await redis_pool.aclose()
 
 
@@ -101,35 +113,13 @@ app.add_middleware(
 
 @app.websocket("/ws/dashboard")
 async def ws_dashboard(ws: WebSocket):
-    await ws.accept()
-    sub = redis_pool.pubsub()
-    try:
-        await sub.subscribe(CH_ZONE_METRICS, CH_MATCH_CLOCK, CH_DASHBOARD_ACTIONS)
-        log.info("Dashboard client connected")
-        async for msg in sub.listen():
-            if msg["type"] != "message":
-                continue
-            try:
-                payload = {
-                    "channel": msg["channel"],
-                    "data":    json.loads(msg["data"]),
-                }
-                await ws.send_json(payload)
-            except WebSocketDisconnect:
-                break
-            except Exception:
-                break
-    except WebSocketDisconnect:
-        pass
-    except Exception as exc:
-        log.error("Dashboard WS error: %s", exc)
-    finally:
-        try:
-            await sub.unsubscribe()
-            await sub.aclose()
-        except Exception:
-            pass
-        log.info("Dashboard client disconnected")
+    """Dashboard WebSocket — delegates to the shared DashboardWSHandler.
+
+    The handler maintains a single Redis pub/sub connection that fans out to
+    all connected clients, and sends each new client the cached zone state
+    immediately on connect.
+    """
+    await ws_handler.connect(ws)
 
 
 # ── WebSocket: Fan ───────────────────────────────────────────────────────────

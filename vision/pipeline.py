@@ -10,6 +10,7 @@ import redis.asyncio as aioredis
 from ultralytics import YOLO
 
 from core.redis_publisher import ZonePublisher
+from vision.cross_calibrator import CrossCalibrator
 from vision.density_estimator import DenseEstimator
 from vision.flow_analyzer import OpticalFlowAnalyzer
 from vision.gate_counter import GateTripwireCounter
@@ -65,6 +66,7 @@ class VisionPipeline:
         # Per-zone components, keyed by zone_id.
         self.publishers: dict[str, ZonePublisher] = {}
         self.dense_estimators: dict[str, DenseEstimator] = {}
+        self.cross_calibrators: dict[str, CrossCalibrator] = {}
         self.gate_counters: dict[str, GateTripwireCounter] = {}
         self._zone_fps: dict[str, float] = {}
 
@@ -77,6 +79,9 @@ class VisionPipeline:
                 cal = float(cfg.get("calibration_factor", 0.005))
                 self.dense_estimators[zone_id] = DenseEstimator(
                     calibration_factor=cal
+                )
+                self.cross_calibrators[zone_id] = CrossCalibrator(
+                    initial_factor=cal
                 )
 
             elif zone_type == "gate":
@@ -131,15 +136,31 @@ class VisionPipeline:
             results = self.model(frame, conf=0.25, classes=[0], verbose=False)
             yolo_count = len(results[0].boxes)
 
+            cross_cal = self.cross_calibrators[zone_id]
+            dense_est = self.dense_estimators[zone_id]
+
+            # Cross-calibration: update using YOLO count + last fg_pixels
+            # (fg_pixels is 0 until first estimate() call, which is fine —
+            # CrossCalibrator will reject it via the min_fg_pixels guard).
+            last_fg = dense_est.get_last_fg_pixels()
+            updated_factor = cross_cal.update(yolo_count, last_fg)
+            dense_est.calibration_factor = updated_factor
+
             if yolo_count >= self.switch_threshold:
-                dense_count = self.dense_estimators[zone_id].estimate(frame, roi)
+                dense_count = dense_est.estimate(frame, roi)
                 if dense_count == -1:
                     # Estimator still warming up — fall back to YOLO.
                     raw_count = yolo_count
                     source = "cv_yolo"
                 else:
                     raw_count = dense_count
-                    source = "cv_dense"
+                    if cross_cal.confidence > 0:
+                        source = (
+                            f"cv_dense:cal@{updated_factor:.6f}:"
+                            f"{int(cross_cal.confidence * 100)}%"
+                        )
+                    else:
+                        source = "cv_dense"
             else:
                 raw_count = yolo_count
                 source = "cv_yolo"
