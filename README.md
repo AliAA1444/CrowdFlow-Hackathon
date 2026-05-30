@@ -4,6 +4,8 @@ Real-time AI crowd management and stadium optimization system. Built for the Spo
 
 CrowdFlow uses computer vision to monitor live camera feeds across stadium zones, estimates crowd density in real time, and deploys autonomous AI agents that make safety, crowd flow, and revenue decisions — all surfaced through a live operations dashboard and a bilingual fan-facing web app.
 
+![CrowdFlow Dashboard](docs/dashboard-screenshot.png)
+
 ## Architecture
 
 ```
