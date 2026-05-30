@@ -1,5 +1,40 @@
+# Virtual environments
 venv/
-__pycache__/
+.venv/
+
+# Environment variables
 .env
-data/videos/*.mp4MOT20/
-feeds/*.mp4
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# IDE / Editor
+.claude/
+.idea/
+.vscode/
+*.swp
+
+# Model weights
+*.pt
+*.onnx
+*.weights
+
+# Video files
+data/videos/*.mp4
+feeds/
+
+# Datasets
+MOT20/
+
+# BMAD tooling
+_bmad/
+_bmad-output/
+
+# Inference artifacts
+inference/.DS_Store

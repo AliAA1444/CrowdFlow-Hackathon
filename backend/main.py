@@ -49,6 +49,8 @@ CH_ZONE_METRICS      = "broadcast:zone_metrics"
 CH_MATCH_CLOCK       = "pos:match_clock"
 CH_DASHBOARD_ACTIONS = "dashboard:actions"
 CH_SIM_CONTROL       = "sim:control"
+CH_AGENT_ACTIONS     = "agent_actions"
+CH_ZONE_UPDATES      = "zone_updates"
 
 # Fan-relevant action types forwarded over the fan WebSocket
 FAN_ACTIONS = {
@@ -124,28 +126,90 @@ async def ws_dashboard(ws: WebSocket):
 
 # ── WebSocket: Fan ───────────────────────────────────────────────────────────
 
+def _density_to_status(density: float) -> str:
+    """Map density (p/m²) to a simple traffic-light status for fan display."""
+    if density < 0.20:
+        return "green"
+    if density < 0.35:
+        return "yellow"
+    return "red"
+
+
 @app.websocket("/ws/fan")
 async def ws_fan(ws: WebSocket):
     await ws.accept()
     sub = redis_pool.pubsub()
     try:
-        await sub.subscribe(CH_DASHBOARD_ACTIONS)
+        # Replay last-known zone state so the UI is never blank on connect
+        snapshot = await _get_zones_snapshot()
+        for zone in snapshot:
+            zid = zone.get("zone_id", "")
+            density = zone.get("density", 0.0)
+            status = _density_to_status(density)
+            cfg = ZONES.get(zid, {})
+            try:
+                await ws.send_json({
+                    "event":         "zone_status",
+                    "zone_id":       zid,
+                    "status":        status,
+                    "density":       round(density, 3),
+                    "smoothed_count": round(zone.get("smoothed_count", zone.get("occupancy", 0))),
+                    "capacity":      cfg.get("capacity", 0),
+                })
+            except Exception:
+                return  # client disconnected during replay
+
+        await sub.subscribe(CH_AGENT_ACTIONS, CH_ZONE_UPDATES, CH_DASHBOARD_ACTIONS)
         log.info("Fan client connected")
+
         async for msg in sub.listen():
             if msg["type"] != "message":
                 continue
+            channel = msg.get("channel", "")
             try:
                 data = json.loads(msg["data"])
             except (json.JSONDecodeError, TypeError):
                 continue
-            # Forward approved fan-relevant actions (including MEDICAL_EMERGENCY)
-            if data.get("action") in FAN_ACTIONS and data.get("status") == "approved":
-                try:
-                    await ws.send_json({"channel": "fan:notification", "data": data})
-                except WebSocketDisconnect:
-                    break
-                except Exception:
-                    break
+
+            try:
+                if channel == CH_ZONE_UPDATES:
+                    # Live density update → fan zone status card
+                    zid = data.get("zone_id", "")
+                    density = data.get("density", 0.0)
+                    cfg = ZONES.get(zid, {})
+                    await ws.send_json({
+                        "event":         "zone_status",
+                        "zone_id":       zid,
+                        "status":        _density_to_status(density),
+                        "density":       round(density, 3),
+                        "smoothed_count": round(data.get("smoothed_count", data.get("raw_count", 0))),
+                        "capacity":      cfg.get("capacity", 0),
+                    })
+
+                elif channel == CH_AGENT_ACTIONS:
+                    # Agent action with Arabic public_message → fan toast
+                    public_msg = data.get("public_message")
+                    if public_msg:
+                        await ws.send_json({
+                            "event":          "fan_notification",
+                            "agent":          data.get("agent", ""),
+                            "action":         data.get("action", ""),
+                            "zone_id":        data.get("zone_id", ""),
+                            "priority":       data.get("priority", "low"),
+                            "public_message": public_msg,
+                            "timestamp":      data.get("timestamp", time.time()),
+                        })
+
+                elif channel == CH_DASHBOARD_ACTIONS:
+                    # Legacy orchestrator-approved alerts (EMERGENCY_ALERT, MEDICAL_EMERGENCY, etc.)
+                    if data.get("action") in FAN_ACTIONS and data.get("status") == "approved":
+                        await ws.send_json({"channel": "fan:notification", "data": data})
+
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                break
+
     except WebSocketDisconnect:
         pass
     except Exception as exc:

@@ -36,10 +36,12 @@ import uvicorn
 
 from backend.main import app
 from core.staleness import StalenessMonitor
+from core.zone_state_cache import ZoneStateCache
 from vision.pipeline import VisionPipeline
 from agents.safety_agent import SafetyAgent
 from agents.crowd_flow_agent import CrowdFlowAgent
 from agents.concession_agent import ConcessionAgent
+from agents.agent_runner import AgentRunner
 from config import REDIS_URL
 
 ZONES_JSON   = ROOT / "config" / "zones.json"
@@ -200,6 +202,15 @@ async def _run_agent(agent_cls, name: str) -> None:
 async def main() -> None:
     args = parse_args()
 
+    # Configure root logger so agent / runner logs appear in the terminal.
+    import logging as _logging
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+
     # 1. Redis must be up before anything else.
     print("[STARTUP] Checking Redis...", flush=True)
     _check_redis()
@@ -246,9 +257,13 @@ async def main() -> None:
     else:
         print("[CONFIG] Cross-calibration ENABLED")
 
-    # 7. Shared Redis client for the StalenessMonitor.
+    # 7. Shared Redis client for StalenessMonitor + AgentRunner.
     redis_client = aioredis.from_url(REDIS_URL)
     staleness_monitor = StalenessMonitor(redis_client)
+
+    # 7b. AgentRunner — centralised zone_updates → evaluate() → agent_actions.
+    zone_cache   = ZoneStateCache()
+    agent_runner = AgentRunner(redis_client, zone_cache)
 
     # 8. Uvicorn server (programmatic API — no subprocess).
     uv_config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
@@ -286,13 +301,23 @@ async def main() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, _shutdown)
 
+    async def _run_agent_runner() -> None:
+        try:
+            await agent_runner.run()
+        except asyncio.CancelledError:
+            pass
+
     all_tasks.extend([
-        asyncio.create_task(_run_staleness(),                          name="staleness_monitor"),
-        asyncio.create_task(_run_pipeline(),                           name="vision_pipeline"),
+        asyncio.create_task(_run_staleness(),    name="staleness_monitor"),
+        asyncio.create_task(_run_pipeline(),     name="vision_pipeline"),
+        asyncio.create_task(_run_agent_runner(), name="agent_runner"),
+        # Individual agents still run for their non-zone_updates channels
+        # (SafetyAgent handles MEDICAL_OVERRIDE_CHANNEL; ConcessionAgent
+        # handles pos:transactions and fan:food_intent).
         asyncio.create_task(_run_agent(SafetyAgent,     "SafetyAgent"),    ),
         asyncio.create_task(_run_agent(CrowdFlowAgent,  "CrowdFlowAgent"), ),
         asyncio.create_task(_run_agent(ConcessionAgent, "ConcessionAgent"),),
-        asyncio.create_task(_run_server(),                             name="uvicorn_server"),
+        asyncio.create_task(_run_server(),       name="uvicorn_server"),
     ])
 
     try:

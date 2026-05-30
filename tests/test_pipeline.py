@@ -87,6 +87,7 @@ def make_pipeline(config=None, threshold=40):
         def _dense_factory(**kw):
             nonlocal dense_call_count
             inst = MagicMock()
+            inst.get_last_fg_pixels.return_value = 0
             dense_store[dense_call_count] = inst
             dense_call_count += 1
             return inst
@@ -339,3 +340,61 @@ class TestVideoLoop:
 
             # process_frame should have been called at least once (for the successful frame).
             pipeline.process_frame.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# 6. FG-pixel override: fg_pixels >= 25_000 forces dense mode
+# ---------------------------------------------------------------------------
+
+class TestFgPixelOverride:
+    def test_dense_called_when_fg_override_fires(self):
+        """yolo=14 (below threshold) but fg=80K → dense mode activates."""
+        pipeline = make_pipeline(threshold=40)
+        _set_yolo_box_count(pipeline, 14)
+
+        dense = pipeline.dense_estimators["general_zone"]
+        dense.get_last_fg_pixels.return_value = 80_000
+        dense.estimate.return_value = 200
+
+        cross_cal = pipeline.cross_calibrators["general_zone"]
+        cross_cal.update = MagicMock(return_value=0.005)
+        cross_cal._confidence = 0.5
+
+        asyncio.run(pipeline.process_frame("general_zone", DUMMY_FRAME, "general"))
+
+        dense.estimate.assert_called_once()
+        publisher = pipeline.publishers["general_zone"]
+        publish_kwargs = publisher.publish.call_args.kwargs
+        assert publish_kwargs["raw_count"] == 200
+
+    def test_yolo_fallback_during_warmup_with_fg_override(self):
+        """fg override fires but estimate()=-1 (warmup) → falls back to YOLO."""
+        pipeline = make_pipeline(threshold=40)
+        _set_yolo_box_count(pipeline, 14)
+
+        dense = pipeline.dense_estimators["general_zone"]
+        dense.get_last_fg_pixels.return_value = 80_000
+        dense.estimate.return_value = -1
+
+        cross_cal = pipeline.cross_calibrators["general_zone"]
+        cross_cal.update = MagicMock(return_value=0.005)
+        cross_cal._confidence = 0.0
+
+        asyncio.run(pipeline.process_frame("general_zone", DUMMY_FRAME, "general"))
+
+        publisher = pipeline.publishers["general_zone"]
+        publish_kwargs = publisher.publish.call_args.kwargs
+        assert publish_kwargs["raw_count"] == 14
+        assert publish_kwargs["source"] == "cv_yolo"
+
+    def test_no_override_when_fg_below_threshold(self):
+        """fg=5K (below 25K) + yolo=14 (below threshold) → stays in YOLO."""
+        pipeline = make_pipeline(threshold=40)
+        _set_yolo_box_count(pipeline, 14)
+
+        dense = pipeline.dense_estimators["general_zone"]
+        dense.get_last_fg_pixels.return_value = 5_000
+
+        asyncio.run(pipeline.process_frame("general_zone", DUMMY_FRAME, "general"))
+
+        dense.estimate.assert_not_called()

@@ -28,18 +28,68 @@ from config import (
     get_state_config,
 )
 from core.schemas import ZoneUpdate
+from core.zone_state_cache import ZoneStateCache
 from agents.base_agent import AgentAction, BaseAgent, run_agent
 
 # ── Channels ─────────────────────────────────────────────────────────────────
 CH_ZONE_METRICS  = "broadcast:zone_metrics"
 CH_ZONE_UPDATES  = "zone_updates"
 
-# ── Thresholds ───────────────────────────────────────────────────────────────
-DENSITY_CRUSH_RISK  = CRUSH_RISK_DENSITY   # 5.5 p/m² → EMERGENCY_ALERT
-DENSITY_STANDSTILL  = STANDSTILL_DENSITY   # 4.0 p/m² → standstill SAFETY_WARNING
-DENSITY_WARNING     = CONGESTION_HIGH      # 3.5 p/m² → general SAFETY_WARNING
-COUNT_EMERGENCY     = 800                  # absolute count threshold
-CLEAR_FACTOR        = 0.80                 # must drop to 80 % of threshold to clear
+# ── Thresholds (legacy, used by _handle_zone_metrics for broadcast:zone_metrics) ─
+DENSITY_CRUSH_RISK  = CRUSH_RISK_DENSITY   # 5.5 p/m²
+DENSITY_STANDSTILL  = STANDSTILL_DENSITY   # 4.0 p/m²
+DENSITY_WARNING     = CONGESTION_HIGH      # 3.5 p/m²
+COUNT_EMERGENCY     = 800
+CLEAR_FACTOR        = 0.80
+
+# ── Small-venue thresholds for evaluate() ────────────────────────────────────
+# Zones range 40–1200 sqm; with imgsz=1280/conf=0.15 CV tuning, typical live
+# counts rise to ~60–200 people; density range in practice 0.05–0.55 p/sqm.
+
+# Threshold 0.45: ~180 people in a 400 sqm concourse — genuine high density
+# for a small venue; previously 0.35 but doubled detection doubles raw density
+SMALL_DENSITY_CRITICAL = 0.45
+# De-escalate at ~82% of critical (0.08 hysteresis gap prevents oscillation)
+SMALL_DENSITY_CRITICAL_CLEAR = 0.37
+
+# Threshold 0.28: ~112 people in 400 sqm — elevated but not critical
+# (previously 0.20; scaled up proportionally with detection improvement)
+SMALL_DENSITY_WARNING = 0.28
+# De-escalate at ~64% of warning threshold (0.10 hysteresis gap)
+SMALL_DENSITY_WARNING_CLEAR = 0.18
+
+# Threshold 4.0 px/frame: fast movement — at the top of observed range
+# (previously 3.5; bumped to stay above normal busy-crowd flow after CV fix)
+SMALL_FLOW_SURGE = 4.0
+# Minimum density to flag a surge as meaningful (not an empty-zone artefact)
+SMALL_FLOW_SURGE_MIN_DENSITY = 0.20
+
+# Threshold 0.25: cross-zone overload check — zone AND all neighbours busy
+SMALL_DENSITY_OVERLOAD = 0.25
+# Minimum neighbour density to count as "under pressure"
+# (previously 0.15; kept — adjacent zones may not have improved CV uniformly)
+SMALL_ADJACENT_PRESSURE = 0.15
+
+# Stagnation: near-zero flow in a dense zone signals a bottleneck
+# Threshold 0.30: ~120 people in 400 sqm — crowd too dense to be static safely
+SMALL_STAGNATION_MIN_DENSITY = 0.30
+
+
+_ZONE_AR: dict[str, str] = {
+    "gate_main":      "البوابة الرئيسية",
+    "gate_vip":       "بوابة VIP",
+    "gate_south":     "البوابة الجنوبية",
+    "concourse_main": "الردهة الرئيسية",
+    "stands_east":    "المدرج الشرقي",
+    "stands_west":    "المدرج الغربي",
+    "stands_north":   "المدرج الشمالي",
+    "food_court":     "منطقة الطعام",
+    "activation_zone": "منطقة المشجعين",
+}
+
+
+def _zone_ar(zone_id: str) -> str:
+    return _ZONE_AR.get(zone_id, zone_id)
 
 
 def _state_visuals(zone: dict) -> tuple[str, str]:
@@ -53,8 +103,9 @@ class SafetyAgent(BaseAgent):
     name = "safety_agent"
     subscribe_channels = [CH_ZONE_METRICS, MEDICAL_OVERRIDE_CHANNEL, CH_ZONE_UPDATES]
 
-    def __init__(self) -> None:
+    def __init__(self, zone_state_cache: ZoneStateCache | None = None) -> None:
         super().__init__()
+        self._zone_cache = zone_state_cache
         # zone_id → True while a crush-risk emergency is active
         self.active_emergencies: dict[str, bool] = {}
         # zone_id → True while a standstill warning is active
@@ -72,10 +123,13 @@ class SafetyAgent(BaseAgent):
         else:
             await self._handle_zone_metrics(data)
 
-    # ── ZoneUpdate evaluation (Prompt 5) ────────────────────────────────────
+    # ── ZoneUpdate evaluation ────────────────────────────────────────────────
 
     async def evaluate(self, update: ZoneUpdate) -> list[AgentAction]:
         """Evaluate density + flow rules from a live ZoneUpdate.
+
+        Thresholds are calibrated for small-venue footage (zones 40–1200 sqm,
+        typical counts 30–150 people, density range 0.05–0.40 p/sqm).
 
         Must call super() first — base class skips evaluation on stale data.
         """
@@ -88,44 +142,103 @@ class SafetyAgent(BaseAgent):
         d   = update.density
         mag = update.flow_magnitude
 
-        # ── Density rules ──────────────────────────────────────────────────
-        if d > 4.0:
+        # ── Density rules (small-venue calibrated, imgsz=1280 CV baseline) ─
+        # 0.45 p/sqm = ~180 people in 400 sqm — zone at maximum safe capacity
+        if d > SMALL_DENSITY_CRITICAL:
             actions.append(AgentAction(
-                action="CRITICAL: Overcrowding",
+                action="CRITICAL: Zone at maximum safe capacity",
                 zone_id=zid,
-                priority="CRITICAL",
-                detail=f"density {d:.2f} p/m² exceeds critical threshold 4.0",
-            ))
-        elif d > 2.5:
-            actions.append(AgentAction(
-                action="WARNING: High density",
-                zone_id=zid,
-                priority="WARNING",
-                detail=f"density {d:.2f} p/m² exceeds warning threshold 2.5",
-            ))
-
-        # ── Flow rules ─────────────────────────────────────────────────────
-        if mag > 8.0 and d > 2.0:
-            actions.append(AgentAction(
-                action="ALERT: Potential stampede — fast crowd movement in dense zone",
-                zone_id=zid,
-                priority="CRITICAL",
+                priority="critical",
                 detail=(
-                    f"flow_magnitude {mag:.1f} px/frame with density {d:.2f} p/m² "
-                    "indicates dangerous crowd surge"
+                    f"كثافة {_zone_ar(zid)} ({d:.3f} شخص/م²) تتجاوز الحد الحرج "
+                    f"{SMALL_DENSITY_CRITICAL} شخص/م² "
+                    f"(ما يعادل ~{int(d * 400)} شخصاً). "
+                    f"مطلوب تدخل فوري لتخفيف الحشد."
+                ),
+                public_message=(
+                    f"🚨 تنبيه عاجل: {_zone_ar(zid)} مكتظ بشكل كامل. "
+                    f"يُرجى الانتقال فوراً إلى منطقة مجاورة لسلامتكم."
+                ),
+            ))
+        elif d > SMALL_DENSITY_WARNING:
+            # 0.28 p/sqm = ~112 people in 400 sqm — elevated but not critical
+            actions.append(AgentAction(
+                action="WARNING: Zone approaching capacity limit",
+                zone_id=zid,
+                priority="high",
+                detail=(
+                    f"كثافة {_zone_ar(zid)} ({d:.3f} شخص/م²) تتجاوز حد التحذير "
+                    f"{SMALL_DENSITY_WARNING} شخص/م² "
+                    f"(ما يعادل ~{int(d * 400)} شخصاً). "
+                    f"المراقبة مستمرة — الاستعداد لتوجيه الحشد."
+                ),
+                public_message=(
+                    f"⚠️ {_zone_ar(zid)} يشهد ازدحاماً متزايداً. "
+                    f"يُنصح بتجنب هذه المنطقة مؤقتاً واختيار بديل أكثر راحة."
                 ),
             ))
 
-        if mag < 0.3 and d > 3.0:
+        # ── Flow rules (calibrated to 0.5–4.0 px/frame observed range) ───
+        # 3.5 px/frame: near top of observed range, indicating rapid movement
+        if mag > SMALL_FLOW_SURGE and d > SMALL_FLOW_SURGE_MIN_DENSITY:
             actions.append(AgentAction(
-                action="WARNING: Stagnation in dense zone — possible bottleneck",
+                action="ALERT: Rapid crowd surge detected — abnormal movement speed in occupied zone",
                 zone_id=zid,
-                priority="WARNING",
+                priority="critical",
                 detail=(
-                    f"near-zero flow ({mag:.2f} px/frame) with high density "
-                    f"{d:.2f} p/m² indicates crowd stoppage"
+                    f"رُصد في {_zone_ar(zid)}: تدفق سريع بمقدار {mag:.2f} بكسل/إطار "
+                    f"(الحد: {SMALL_FLOW_SURGE}) مع كثافة {d:.3f} شخص/م². "
+                    f"اتجاه الحركة: {update.flow_direction:.0f}°. "
+                    f"التحقق الفوري من خطر التدافع."
+                ),
+                public_message=(
+                    f"🚨 رُصد تدفق سريع للحشود في {_zone_ar(zid)}. "
+                    f"يرجى التحرك ببطء والالتزام بتوجيهات فريق السلامة."
                 ),
             ))
+
+        # Stagnation: near-zero flow in a dense zone signals a bottleneck
+        # 0.30 p/sqm = ~120 people in 400 sqm stopped moving — serious risk
+        if mag < 0.3 and d > SMALL_STAGNATION_MIN_DENSITY:
+            actions.append(AgentAction(
+                action="WARNING: Crowd stagnation detected — possible bottleneck forming",
+                zone_id=zid,
+                priority="high",
+                detail=(
+                    f"رُصد في {_zone_ar(zid)}: تدفق شبه منعدم ({mag:.2f} بكسل/إطار) "
+                    f"مع كثافة {d:.3f} شخص/م² — توقف الحشد عن الحركة. "
+                    f"التحقق من وجود عائق أو انسداد في المخارج."
+                ),
+                public_message=(
+                    f"⚠️ يشهد {_zone_ar(zid)} توقفاً في حركة الحشود. "
+                    f"يُرجى اتباع إرشادات المشرفين واختيار مسار بديل."
+                ),
+            ))
+
+        # ── Cross-zone overload (requires ZoneStateCache) ─────────────────
+        # 0.25 p/sqm = zone is clearly busy; if ALL neighbours are also >0.15
+        # there is no safe overflow destination — venue-wide intervention needed.
+        if d > SMALL_DENSITY_OVERLOAD and self._zone_cache is not None:
+            adjacent = self._zone_cache.get_adjacent_zones(zid)
+            if adjacent and all(a.density > SMALL_ADJACENT_PRESSURE for a in adjacent):
+                neighbour_summary = ", ".join(
+                    f"{a.zone_id}={a.density:.3f}" for a in adjacent
+                )
+                actions.append(AgentAction(
+                    action="SYSTEM_OVERLOAD: Multiple zones under pressure — consider venue-wide intervention",
+                    zone_id=zid,
+                    priority="critical",
+                    detail=(
+                        f"{_zone_ar(zid)} (الكثافة: {d:.3f} شخص/م²) وجميع "
+                        f"المناطق المجاورة ({len(adjacent)}) [{neighbour_summary}] "
+                        f"تتجاوز {SMALL_ADJACENT_PRESSURE} شخص/م². "
+                        f"لا توجد منطقة متاحة لتحويل الحشد — تصعيد فوري لعمليات الملعب."
+                    ),
+                    public_message=(
+                        "🚨 تنبيه عام: تشهد مناطق متعددة في الملعب ضغطاً عالياً على الطاقة الاستيعابية. "
+                        "يُرجى البقاء في أماكنكم واتباع توجيهات فريق التنظيم."
+                    ),
+                ))
 
         return actions
 

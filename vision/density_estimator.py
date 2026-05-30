@@ -23,7 +23,8 @@ class DenseEstimator:
         self,
         calibration_factor: float = 0.005,
         learning_rate: float = 0.005,
-        min_area: int = 500,
+        # Lowered from 500: distant people produce ~100-300px contour areas
+        min_area: int = 100,
     ) -> None:
         """
         Args:
@@ -41,6 +42,7 @@ class DenseEstimator:
         )
         self._warmup_frames: int = 0
         self._last_fg_pixels: int = 0
+        self._last_mask: np.ndarray | None = None
 
     def estimate(self, frame: np.ndarray, roi: tuple[int, int, int, int]) -> int:
         """Estimate crowd count in the given ROI via foreground pixel density.
@@ -60,8 +62,12 @@ class DenseEstimator:
         fg_mask = self._bg_subtractor.apply(roi_frame, learningRate=self.learning_rate)
 
         # Morphological opening removes small noise blobs.
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        # CV TUNING: reduced from (5,5) to (3,3) to preserve small foreground blobs
+        # A (5,5) kernel erases people who appear as <5px wide blobs at distance
+        # (3,3) still removes single-pixel noise but keeps 4px+ person blobs intact
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         cleaned_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
+        self._last_mask = cleaned_mask.copy()
 
         self._warmup_frames += 1
         if self._warmup_frames <= _WARMUP_FRAMES:
@@ -81,3 +87,7 @@ class DenseEstimator:
     def get_last_fg_pixels(self) -> int:
         """Return the foreground pixel count from the most recent estimate() call."""
         return self._last_fg_pixels
+
+    def get_last_mask(self) -> np.ndarray | None:
+        """Return the cleaned MOG2 foreground mask from the most recent estimate() call."""
+        return self._last_mask

@@ -25,18 +25,47 @@ from config import (
     get_state_config,
 )
 from core.schemas import ZoneUpdate
+from core.zone_state_cache import ZoneStateCache
 from agents.base_agent import AgentAction, BaseAgent, run_agent
 
 # ── Channels ─────────────────────────────────────────────────────────────────
 CH_ZONE_METRICS  = "broadcast:zone_metrics"
 CH_ZONE_UPDATES  = "zone_updates"
 
-# ── Tunables ─────────────────────────────────────────────────────────────────
+# ── Tunables (legacy broadcast:zone_metrics handler) ─────────────────────────
 ROLLING_WINDOW    = 30    # keep last N readings per zone
 RECENT_WINDOW     = 5     # compare most-recent N …
 OLDER_WINDOW      = 5     # … against the N before them
 GROWTH_THRESHOLD  = 25.0  # % growth that triggers reroute
 PREDICTION_MINUTES = 5.0  # minutes ahead for linear prediction
+
+# ── Small-venue thresholds for evaluate() ────────────────────────────────────
+# Threshold 0.25: ~100 people in 400 sqm — zone is clearly busy; rerouting warranted
+# (previously 0.18; scaled up ~38% for imgsz=1280/conf=0.15 detection improvement)
+SMALL_REROUTE_DENSITY    = 0.25
+# Threshold 0.12: adjacent zone has meaningful spare capacity — viable redirect
+# (previously 0.10; slight increase to avoid routing to only-slightly-less-busy zones)
+SMALL_ADJACENT_FREE      = 0.12
+# Threshold 40: gate imbalance above 40 net = significant one-directional pressure
+# (previously 30; raised because higher detection captures more partial crossings)
+SMALL_GATE_NET_IMBALANCE = 40
+
+_ZONE_AR: dict[str, str] = {
+    "gate_main":      "البوابة الرئيسية",
+    "gate_vip":       "بوابة VIP",
+    "gate_south":     "البوابة الجنوبية",
+    "concourse_main": "الردهة الرئيسية",
+    "stands_east":    "المدرج الشرقي",
+    "stands_west":    "المدرج الغربي",
+    "stands_north":   "المدرج الشمالي",
+    "food_court":     "منطقة الطعام",
+    "activation_zone": "منطقة المشجعين",
+}
+
+
+def _zone_ar(zone_id: str) -> str:
+    return _ZONE_AR.get(zone_id, zone_id)
+
 
 # State severity ordering (used to decide overflow)
 _STATE_SEVERITY: dict[str, int] = {
@@ -75,8 +104,9 @@ class CrowdFlowAgent(BaseAgent):
     name = "crowd_flow_agent"
     subscribe_channels = [CH_ZONE_METRICS, CH_ZONE_UPDATES]
 
-    def __init__(self) -> None:
+    def __init__(self, zone_state_cache: ZoneStateCache | None = None) -> None:
         super().__init__()
+        self._zone_cache = zone_state_cache
         # zone_id → deque of occupancy counts (for legacy zone_metrics handler)
         self.history: dict[str, collections.deque] = {
             zid: collections.deque(maxlen=ROLLING_WINDOW)
@@ -140,53 +170,67 @@ class CrowdFlowAgent(BaseAgent):
                     },
                 })
 
-    # ── ZoneUpdate evaluation (Prompt 5) ────────────────────────────────────
+    # ── ZoneUpdate evaluation ────────────────────────────────────────────────
 
     async def evaluate(self, update: ZoneUpdate) -> list[AgentAction]:
-        """Flow-based routing and gate capacity recommendations from ZoneUpdate."""
+        """Flow-based routing and gate throttle recommendations from ZoneUpdate.
+
+        Thresholds calibrated for small-venue footage (zones 40–1200 sqm,
+        typical counts 30–150 people, density range 0.05–0.40 p/sqm).
+        """
         guard = await super().evaluate(update)
         if update.source == "stale_fallback":
             return guard
 
-        # Keep a live snapshot of all zones for cross-zone density comparison
+        # Keep internal snapshot (used by legacy broadcast:zone_metrics path)
         self._zone_updates[update.zone_id] = update
 
         actions: list[AgentAction] = []
-        zid = update.zone_id
+        zid      = update.zone_id
+        d        = update.density
+        flow_dir = update.flow_direction
 
-        # ── Flow-based rerouting ──────────────────────────────────────────
-        if update.density > 3.0:
-            adjacent = _ZONE_ADJACENCY.get(zid, [])
-            for adj_id in adjacent:
-                adj = self._zone_updates.get(adj_id)
-                if adj and adj.density < 1.5:
-                    # Prefer a target whose direction aligns with current flow
-                    # (flow_direction is degrees clockwise-from-east in image space)
+        # ── Reroute logic (small-venue calibrated) ────────────────────────
+        # 0.18 p/sqm = ~72 people in 400 sqm — worth redirecting some traffic
+        if d > SMALL_REROUTE_DENSITY and self._zone_cache is not None:
+            adjacent = self._zone_cache.get_adjacent_zones(zid)
+            for adj in adjacent:
+                # 0.10 p/sqm: adjacent zone has meaningful spare capacity
+                if adj.density < SMALL_ADJACENT_FREE:
                     actions.append(AgentAction(
-                        action="REROUTE_TRAFFIC",
+                        action="REROUTE_FANS",
                         zone_id=zid,
-                        priority="HIGH",
+                        priority="high",
                         detail=(
-                            f"Dense zone {zid} ({update.density:.1f} p/m²) → "
-                            f"reroute to {adj_id} ({adj.density:.1f} p/m²); "
-                            f"flow direction {update.flow_direction:.0f}°"
+                            f"توجيه الحشد من {_zone_ar(zid)} "
+                            f"(الكثافة: {d:.3f} شخص/م²، اتجاه التدفق: {flow_dir:.0f}°) "
+                            f"إلى {_zone_ar(adj.zone_id)} (الكثافة: {adj.density:.3f} شخص/م²). "
+                            f"المسار يتوافق مع اتجاه حركة الحشد الحالي."
+                        ),
+                        public_message=(
+                            f"🚦 نود لفت انتباهكم: {_zone_ar(zid)} مكتظ حالياً. "
+                            f"يُرجى التوجه إلى {_zone_ar(adj.zone_id)} لراحتكم وسلاستكم."
                         ),
                     ))
-                    break  # One recommendation per evaluation cycle
+                    break  # one recommendation per evaluation cycle
 
-        # ── Gate capacity check ───────────────────────────────────────────
-        if "gate" in zid and (update.gate_in > 0 or update.gate_out > 0):
+        # ── Gate throttle ─────────────────────────────────────────────────
+        # Net imbalance > 30: significant one-directional pressure at the gate
+        if zid.startswith("gate_"):
             net = update.gate_in - update.gate_out
-            capacity = ZONES.get(zid, {}).get("capacity", 500)
-            if net > capacity * 0.8:
+            if net > SMALL_GATE_NET_IMBALANCE:
                 actions.append(AgentAction(
-                    action="CLOSE_GATE",
+                    action="GATE_THROTTLE",
                     zone_id=zid,
-                    priority="HIGH",
+                    priority="high",
                     detail=(
-                        f"Gate {zid}: net occupancy {net} exceeds 80% of "
-                        f"capacity {capacity} (IN={update.gate_in}, OUT={update.gate_out}). "
-                        "Recommend closing to new entry."
+                        f"اختلال في {_zone_ar(zid)}: {update.gate_in} دخولاً مقابل "
+                        f"{update.gate_out} خروجاً (صافي +{net}). "
+                        f"يُنصح بضبط تدفق الدخول لمنع الاختناق عند البوابة."
+                    ),
+                    public_message=(
+                        f"⚠️ يشهد {_zone_ar(zid)} ضغطاً عالياً عند الدخول. "
+                        f"يُرجى التحلي بالصبر أو استخدام بوابة مجاورة إن أمكن."
                     ),
                 ))
 

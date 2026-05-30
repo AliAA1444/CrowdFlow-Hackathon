@@ -18,9 +18,13 @@ class CrossCalibrator:
         self,
         initial_factor: float,
         learning_rate: float = 0.05,
-        min_yolo_count: int = 15,
-        max_yolo_count: int = 45,
+        # Minimum 10 detections to establish a meaningful pixel-to-person ratio.
+        min_yolo_count: int = 10,
+        # Raised from 45: YOLO at imgsz=1280 is reliable up to ~120 detections.
+        # This allows cross-calibration to learn from medium-to-high density scenes.
+        max_yolo_count: int = 120,
         min_fg_pixels: int = 1000,
+        fg_override_threshold: int = 25_000,
     ) -> None:
         """
         Args:
@@ -32,6 +36,8 @@ class CrossCalibrator:
                 unreliable.
             min_fg_pixels: Minimum foreground pixels required to avoid
                 division-by-near-zero.
+            fg_override_threshold: If fg_pixels >= this value and YOLO count
+                is suspiciously low, suspect occlusion and skip the update.
         """
         self._initial_factor = initial_factor
         self._current_factor = initial_factor
@@ -39,6 +45,7 @@ class CrossCalibrator:
         self.min_yolo_count = min_yolo_count
         self.max_yolo_count = max_yolo_count
         self.min_fg_pixels = min_fg_pixels
+        self.fg_override_threshold = fg_override_threshold
 
         self._samples: int = 0
         self._confidence: float = 0.0
@@ -65,9 +72,23 @@ class CrossCalibrator:
         if fg_pixels < self.min_fg_pixels:
             return self._current_factor
 
+        # Gate 3: Occlusion detection — massive foreground but suspiciously
+        # low YOLO count means YOLO is blinded.  Skip to prevent poisoning.
+        if fg_pixels >= self.fg_override_threshold and self._confidence > 0:
+            expected_count = fg_pixels * self._current_factor
+            if expected_count > 0 and yolo_count < expected_count * 0.3:
+                logger.info(
+                    "CrossCalibrator: occlusion guard — fg_pixels=%d but "
+                    "yolo_count=%d (expected ~%.0f) — skipping update",
+                    fg_pixels,
+                    yolo_count,
+                    expected_count,
+                )
+                return self._current_factor
+
         observed_factor = yolo_count / fg_pixels
 
-        # Sanity check: reject implausible outliers (>3x or <0.33x current).
+        # Gate 4: reject implausible outliers (>3x or <0.33x current).
         ratio = observed_factor / self._current_factor
         if ratio > 3.0 or ratio < 0.33:
             logger.warning(

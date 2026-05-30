@@ -191,8 +191,47 @@ def test_get_status_reflects_current_state():
 def test_rejected_update_does_not_change_confidence_or_samples():
     cal = make_calibrator()
     cal.update(yolo_count=5, fg_pixels=5000)   # too low YOLO count
-    cal.update(yolo_count=50, fg_pixels=5000)  # too high YOLO count
+    cal.update(yolo_count=130, fg_pixels=5000)  # too high YOLO count (> max_yolo_count=120)
     cal.update(yolo_count=25, fg_pixels=100)   # fg too low
     assert cal.samples == 0
     assert cal.confidence == 0.0
     assert cal.current_factor == INITIAL
+
+
+# ---------------------------------------------------------------------------
+# Occlusion guard: massive fg_pixels + low YOLO → skip update
+# ---------------------------------------------------------------------------
+
+def test_occlusion_guard_skips_poisoned_update():
+    """fg=80K + yolo=14 with calibrated factor → occlusion, update skipped."""
+    cal = make_calibrator(fg_override_threshold=25_000)
+    # Build confidence with a valid sample first.
+    cal.update(yolo_count=30, fg_pixels=6000)
+    assert cal.samples == 1
+
+    old_factor = cal.current_factor
+    # Occlusion: expected = 80_000 * factor ≈ 400. yolo=14 < 400*0.3 → skip.
+    result = cal.update(yolo_count=14, fg_pixels=80_000)
+    assert result == old_factor
+    assert cal.samples == 1
+
+
+def test_occlusion_guard_inactive_before_calibration():
+    """Guard requires confidence > 0; with no prior samples it stays off."""
+    cal = make_calibrator(fg_override_threshold=25_000)
+    assert cal.confidence == 0.0
+    # fg=30K is above threshold but guard should be inactive.
+    # The update may still be rejected by the tighter outlier bounds,
+    # but the occlusion guard itself is not the reason.
+    cal.update(yolo_count=14, fg_pixels=30_000)
+    assert cal.confidence == 0.0
+
+
+def test_occlusion_guard_allows_reasonable_yolo():
+    """yolo >= 30% of expected → guard does not fire, update proceeds."""
+    cal = make_calibrator(fg_override_threshold=25_000)
+    cal.update(yolo_count=30, fg_pixels=6000)
+    old_samples = cal.samples
+    # expected = 30_000 * factor. yolo=60 should be >= 30% of expected.
+    cal.update(yolo_count=60, fg_pixels=30_000)
+    assert cal.samples == old_samples + 1

@@ -1,36 +1,92 @@
 {
+  "demo_settings": {
+    "venue_name": "CrowdFlow Arena — 45,000 Capacity",
+    "venue_capacity": 45000,
+    "process_every_n_frames": 3,
+    "max_concurrent_inference": 3,
+    "description": "9-zone MVP. Extrapolated sector estimates from camera samples."
+  },
   "zones": {
     "gate_main": {
       "type": "gate",
-      "roi": {"x": 0, "y": 0, "w": 1920, "h": 1080},
-      "area_sqm": 60,
+      "roi": {"x": 0, "y": 0, "w": 1280, "h": 720},
+      "area_sqm": 80,
+      "sector_total_sqm": 80,
       "video_source": "feeds/real_gate_main.mp4",
-      "tripwire": {"p1": [960, 0], "p2": [960, 1080]},
+      "tripwire": {"p1": [640, 0], "p2": [640, 720]},
       "in_direction": "right",
-      "capacity": 200
+      "capacity": 400,
+      "calibration_factor": 0.0025
     },
     "gate_vip": {
       "type": "gate",
-      "roi": {"x": 0, "y": 0, "w": 1920, "h": 1080},
-      "area_sqm": 40,
+      "roi": {"x": 0, "y": 0, "w": 1280, "h": 720},
+      "area_sqm": 60,
+      "sector_total_sqm": 60,
       "video_source": "feeds/real_gate_vip.mp4",
-      "tripwire": {"p1": [0, 540], "p2": [1920, 540]},
+      "tripwire": {"p1": [0, 360], "p2": [1280, 360]},
       "in_direction": "down",
-      "capacity": 100
+      "capacity": 300,
+      "calibration_factor": 0.0025
+    },
+    "gate_south": {
+      "type": "gate",
+      "roi": {"x": 50, "y": 30, "w": 1180, "h": 660},
+      "area_sqm": 70,
+      "sector_total_sqm": 70,
+      "video_source": "feeds/fan_plaza.mov",
+      "tripwire": {"p1": [640, 0], "p2": [640, 720]},
+      "in_direction": "right",
+      "capacity": 350,
+      "calibration_factor": 0.0025
     },
     "concourse_main": {
       "type": "general",
-      "roi": {"x": 3, "y": 236, "w": 943, "h": 595},
-      "area_sqm": 400,
+      "roi": {"x": 80, "y": 40, "w": 1100, "h": 640},
+      "area_sqm": 350,
+      "sector_total_sqm": 2800,
       "video_source": "feeds/real_concourse.mp4",
-      "calibration_factor": 0.037040
+      "calibration_factor": 0.0025
     },
     "stands_east": {
       "type": "general",
-      "roi": {"x": 71, "y": 52, "w": 1575, "h": 1018},
-      "area_sqm": 1200,
+      "roi": {"x": 60, "y": 30, "w": 1150, "h": 660},
+      "area_sqm": 300,
+      "sector_total_sqm": 3000,
       "video_source": "feeds/real_stands_dense.mp4",
-      "calibration_factor": 0.071173
+      "calibration_factor": 0.0025
+    },
+    "stands_west": {
+      "type": "general",
+      "roi": {"x": 100, "y": 50, "w": 1050, "h": 600},
+      "area_sqm": 300,
+      "sector_total_sqm": 3000,
+      "video_source": "feeds/stands_west.mov",
+      "calibration_factor": 0.0025
+    },
+    "stands_north": {
+      "type": "general",
+      "roi": {"x": 70, "y": 35, "w": 1120, "h": 650},
+      "area_sqm": 280,
+      "sector_total_sqm": 2800,
+      "video_source": "feeds/stands_north.mov",
+      "calibration_factor": 0.0025
+    },
+    "food_court": {
+      "type": "general",
+      "roi": {"x": 90, "y": 60, "w": 1080, "h": 580},
+      "area_sqm": 400,
+      "sector_total_sqm": 1600,
+      "video_source": "feeds/food_court.mp4",
+      "calibration_factor": 0.0025
+    },
+    "activation_zone": {
+      "type": "general",
+      "roi": {"x": 100, "y": 80, "w": 1080, "h": 560},
+      "area_sqm": 500,
+      "sector_total_sqm": 2000,
+      "video_source": "feeds/activation_zone.mov",
+      "calibration_factor": 0.0025
     }
   }
 }

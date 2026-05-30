@@ -39,6 +39,8 @@ class ZonePublisher:
         source: str,
         fps: float,
         zone_area_sqm: float,
+        gate_in: int = 0,
+        gate_out: int = 0,
     ) -> ZoneUpdate:
         """Smooth raw_count, compute density, and push to Redis.
 
@@ -56,9 +58,10 @@ class ZonePublisher:
             density=density,
             raw_count=raw_count,
             smoothed_count=smoothed_count,
+            gate_in=gate_in,
+            gate_out=gate_out,
             source=source,
             fps=fps,
-            # timestamp auto-populated via default_factory
         )
 
         payload = json.dumps(update.model_dump())

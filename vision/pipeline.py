@@ -18,6 +18,13 @@ from vision.gate_counter import GateTripwireCounter
 logger = logging.getLogger(__name__)
 
 
+# HARDWARE PROTECTION: Only run heavy CV inference every Nth frame.
+# cap.read() runs every frame to keep video clock synchronized,
+# but YOLO/MOG2/ByteTrack only execute on sampled frames.
+# This reduces CPU load by ~70% (e.g., process_every=3 means skip 2 of 3 frames).
+PROCESS_EVERY_N_FRAMES = 3
+
+
 class VisionPipeline:
     """Unified vision pipeline with automatic YOLO / dense-estimation mode switching.
 
@@ -41,7 +48,12 @@ class VisionPipeline:
         self,
         yolo_model_path: str = "yolov8n.pt",
         zone_config: dict | None = None,
-        switch_threshold: int = 40,
+        # Auto-switch to MOG2 dense estimator when YOLO detects >= 100 people.
+        # At imgsz=1280, YOLO is reliable up to ~100-120 detections.
+        # Below 100: trust YOLO (it's more accurate for sparse/medium density).
+        # Above 100: YOLO starts missing people due to occlusion, switch to MOG2.
+        switch_threshold: int = 100,
+        fg_override_threshold: int = 25_000,
         redis_url: str = "redis://localhost:6379",
     ) -> None:
         if zone_config is None:
@@ -49,19 +61,27 @@ class VisionPipeline:
 
         self.zone_config = zone_config
         self.switch_threshold = switch_threshold
+        self.fg_override_threshold = fg_override_threshold
+
+        # Concurrency semaphore: at most 3 zones run heavy CV inference simultaneously.
+        # On a MacBook Air (8 cores), this prevents CPU saturation across 9 feeds.
+        # cap.read() is NOT gated — all feeds keep reading frames for clock sync.
+        self._inference_semaphore = asyncio.Semaphore(3)
 
         # Single YOLO instance shared across all general-zone detection calls.
         self.model = YOLO(yolo_model_path)
 
         redis_client = aioredis.from_url(redis_url)
 
-        # Build the ROI dict used by the shared flow analyser.
-        zone_rois: dict[str, tuple[int, int, int, int]] = {}
+        # One OpticalFlowAnalyzer per zone so each feed's _prev_gray state is
+        # completely isolated.  A shared instance crashes when concurrent feeds
+        # have different frame resolutions (OpenCV requires prev/next same size).
+        self.flow_analyzers: dict[str, OpticalFlowAnalyzer] = {}
         for zone_id, cfg in zone_config["zones"].items():
             r = cfg["roi"]
-            zone_rois[zone_id] = (r["x"], r["y"], r["w"], r["h"])
-
-        self.flow_analyzer = OpticalFlowAnalyzer(zone_rois)
+            self.flow_analyzers[zone_id] = OpticalFlowAnalyzer(
+                {zone_id: (r["x"], r["y"], r["w"], r["h"])}
+            )
 
         # Per-zone components, keyed by zone_id.
         self.publishers: dict[str, ZonePublisher] = {}
@@ -81,7 +101,8 @@ class VisionPipeline:
                     calibration_factor=cal
                 )
                 self.cross_calibrators[zone_id] = CrossCalibrator(
-                    initial_factor=cal
+                    initial_factor=cal,
+                    fg_override_threshold=fg_override_threshold,
                 )
 
             elif zone_type == "gate":
@@ -91,6 +112,14 @@ class VisionPipeline:
                     model_path=yolo_model_path,
                     tripwire=tripwire,
                     in_direction=cfg["in_direction"],
+                )
+                cal = float(cfg.get("calibration_factor", 0.0025))
+                self.dense_estimators[zone_id] = DenseEstimator(
+                    calibration_factor=cal
+                )
+                self.cross_calibrators[zone_id] = CrossCalibrator(
+                    initial_factor=cal,
+                    fg_override_threshold=fg_override_threshold,
                 )
 
     # ------------------------------------------------------------------
@@ -119,61 +148,122 @@ class VisionPipeline:
 
         if zone_type == "gate":
             # Tripwire crossing tracking (cumulative in/out).
-            self.gate_counters[zone_id].process_frame(frame)
+            gate_count = self.gate_counters[zone_id].process_frame(frame)
 
             # Instantaneous detection count for the gate zone.
-            results = self.model(frame, conf=0.25, classes=[0], verbose=False)
+            results = self.model(frame, conf=0.15, classes=[0], verbose=False, imgsz=1280)
             yolo_count = len(results[0].boxes)
 
-            await publisher.publish(
-                raw_count=yolo_count,
-                source="cv",
-                fps=fps,
-                zone_area_sqm=area_sqm,
-            )
-
-        elif zone_type == "general":
-            results = self.model(frame, conf=0.25, classes=[0], verbose=False)
-            yolo_count = len(results[0].boxes)
-
-            cross_cal = self.cross_calibrators[zone_id]
             dense_est = self.dense_estimators[zone_id]
+            cross_cal = self.cross_calibrators[zone_id]
 
-            # Cross-calibration: update using YOLO count + last fg_pixels
-            # (fg_pixels is 0 until first estimate() call, which is fine —
-            # CrossCalibrator will reject it via the min_fg_pixels guard).
+            # Always run MOG2 to keep background model warm and update fg_pixels.
+            # Without this, get_last_fg_pixels() stays 0 forever (chicken-and-egg).
+            dense_count = dense_est.estimate(frame, roi)
             last_fg = dense_est.get_last_fg_pixels()
+
             updated_factor = cross_cal.update(yolo_count, last_fg)
             dense_est.calibration_factor = updated_factor
 
-            if yolo_count >= self.switch_threshold:
-                dense_count = dense_est.estimate(frame, roi)
-                if dense_count == -1:
-                    # Estimator still warming up — fall back to YOLO.
-                    raw_count = yolo_count
-                    source = "cv_yolo"
+            # Mode switching: use MOG2 when YOLO saturates or FG override fires.
+            fg_override = last_fg >= self.fg_override_threshold
+            use_dense = yolo_count >= self.switch_threshold or fg_override
+
+            if fg_override and yolo_count < self.switch_threshold:
+                logger.info(
+                    "Gate %s: fg_pixel override — fg=%d, yolo=%d "
+                    "— forcing dense mode",
+                    zone_id,
+                    last_fg,
+                    yolo_count,
+                )
+
+            if use_dense and dense_count != -1:
+                raw_count = dense_count
+                if cross_cal.confidence > 0:
+                    source = (
+                        f"cv_dense:cal@{updated_factor:.6f}:"
+                        f"{int(cross_cal.confidence * 100)}%"
+                    )
                 else:
-                    raw_count = dense_count
-                    if cross_cal.confidence > 0:
-                        source = (
-                            f"cv_dense:cal@{updated_factor:.6f}:"
-                            f"{int(cross_cal.confidence * 100)}%"
-                        )
-                    else:
-                        source = "cv_dense"
+                    source = "cv_dense"
             else:
                 raw_count = yolo_count
                 source = "cv_yolo"
+
+            # Coverage-ratio extrapolation: scale count to full sector if configured.
+            sector_sqm = float(cfg.get("sector_total_sqm", area_sqm))
+            coverage_ratio = sector_sqm / max(area_sqm, 1.0)
+            if coverage_ratio > 1.0:
+                raw_count = int(raw_count * coverage_ratio)
+                source = f"{source}:x{coverage_ratio:.0f}"
 
             await publisher.publish(
                 raw_count=raw_count,
                 source=source,
                 fps=fps,
-                zone_area_sqm=area_sqm,
+                zone_area_sqm=sector_sqm,
+                gate_in=gate_count.gate_in,
+                gate_out=gate_count.gate_out,
+            )
+
+        elif zone_type == "general":
+            results = self.model(frame, conf=0.15, classes=[0], verbose=False, imgsz=1280)
+            yolo_count = len(results[0].boxes)
+
+            dense_est = self.dense_estimators[zone_id]
+            cross_cal = self.cross_calibrators[zone_id]
+
+            # Always run MOG2 to keep background model warm and update fg_pixels.
+            dense_count = dense_est.estimate(frame, roi)
+            last_fg = dense_est.get_last_fg_pixels()
+
+            updated_factor = cross_cal.update(yolo_count, last_fg)
+            dense_est.calibration_factor = updated_factor
+
+            fg_override = last_fg >= self.fg_override_threshold
+            use_dense = yolo_count >= self.switch_threshold or fg_override
+
+            if fg_override and yolo_count < self.switch_threshold:
+                logger.info(
+                    "Zone %s: fg_pixel override — fg=%d, yolo=%d "
+                    "— forcing dense mode",
+                    zone_id,
+                    last_fg,
+                    yolo_count,
+                )
+
+            if use_dense and dense_count != -1:
+                raw_count = dense_count
+                if cross_cal.confidence > 0:
+                    source = (
+                        f"cv_dense:cal@{updated_factor:.6f}:"
+                        f"{int(cross_cal.confidence * 100)}%"
+                    )
+                else:
+                    source = "cv_dense"
+            else:
+                raw_count = yolo_count
+                source = "cv_yolo"
+
+            # Coverage-ratio extrapolation: camera covers area_sqm of sector_total_sqm.
+            # Density stays consistent: (count * ratio) / (area * ratio) == count / area.
+            # The displayed count scales to the full sector; density drives agent logic.
+            sector_sqm = float(cfg.get("sector_total_sqm", area_sqm))
+            coverage_ratio = sector_sqm / max(area_sqm, 1.0)
+            if coverage_ratio > 1.0:
+                raw_count = int(raw_count * coverage_ratio)
+                source = f"{source}:x{coverage_ratio:.0f}"
+
+            await publisher.publish(
+                raw_count=raw_count,
+                source=source,
+                fps=fps,
+                zone_area_sqm=sector_sqm,
             )
 
         # Optical flow runs on every frame regardless of mode.
-        flow_results = self.flow_analyzer.analyze(frame)
+        flow_results = self.flow_analyzers[zone_id].analyze(frame)
         if zone_id in flow_results:
             flow = flow_results[zone_id]
             logger.debug(
@@ -210,6 +300,8 @@ class VisionPipeline:
 
         logger.info("Zone %s: starting feed from '%s'", zone_id, video_source)
 
+        frame_index = 0
+
         while True:
             ret, frame = await asyncio.to_thread(cap.read)
 
@@ -233,13 +325,22 @@ class VisionPipeline:
                     )
                     break
 
-            # Update per-zone FPS estimate.
+            frame_index += 1
+
+            # Always read frames to keep video in sync, but only run heavy
+            # CV inference (YOLO/MOG2/ByteTrack) every Nth frame.
+            if frame_index % PROCESS_EVERY_N_FRAMES != 0:
+                continue
+
+            # Update per-zone FPS estimate (based on processed frames only).
             now = time.perf_counter()
             elapsed = now - prev_time
             self._zone_fps[zone_id] = 1.0 / elapsed if elapsed > 0 else 0.0
             prev_time = now
 
-            await self.process_frame(zone_id, frame, zone_type)
+            # Semaphore: at most 3 zones run heavy CV inference at the same time.
+            async with self._inference_semaphore:
+                await self.process_frame(zone_id, frame, zone_type)
 
         cap.release()
 
@@ -264,6 +365,11 @@ class VisionPipeline:
                     zone_id,
                 )
 
+        logger.info(
+            "Pipeline: %d zones, process every %d frames, max 3 concurrent inference",
+            len(feed_config),
+            PROCESS_EVERY_N_FRAMES,
+        )
         tasks = [
             _safe_run(zone_id, src) for zone_id, src in feed_config.items()
         ]

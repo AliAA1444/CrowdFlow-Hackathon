@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 import os
 
+import pytest
+
 # Ensure project root is on the path when running from any directory.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -146,3 +148,58 @@ def test_reset_zero_guard_disabled_after_reset() -> None:
     result = ema.update(0)
     assert result == 0.0
     assert ema.last_was_rejected is False
+
+
+# ---------------------------------------------------------------------------
+# Consecutive-rejection override (Bug #1a fix)
+# ---------------------------------------------------------------------------
+
+def test_consecutive_rejection_override() -> None:
+    """After N_OVERRIDE consecutive rejections the EMA is force-reset to raw."""
+    ema = EMACounter(alpha=0.3, spike_threshold=2.0)
+    # Seed a low initial EMA (simulates sparse first frame).
+    ema.update(37)  # EMA = 37
+
+    # Frames 1-4: relative change = (250-37)/37 ≈ 5.76 > 2.0 → rejected each time.
+    for i in range(4):
+        r = ema.update(250)
+        assert ema.last_was_rejected is True, (
+            f"Frame {i + 1}: expected rejection but got ema={r}"
+        )
+        assert r == pytest.approx(37.0), (
+            f"EMA should stay at 37 during rejection; got {r}"
+        )
+
+    # Frame 5: 5th consecutive rejection → force-override.
+    r5 = ema.update(250)
+    assert r5 == pytest.approx(250.0), (
+        f"5th consecutive rejection should force-accept raw=250; got {r5}"
+    )
+    assert ema.last_was_rejected is False
+
+    # EMA must stay near 250 on subsequent identical frames.
+    for _ in range(5):
+        result = ema.update(250)
+    assert result > 200, (
+        f"Post-override EMA should converge to 250; got {result}"
+    )
+
+
+def test_zero_still_rejected_with_high_threshold() -> None:
+    """Zero count is always rejected when EMA > 10, even with threshold=2.0.
+
+    (abs(0 - 100) / 100 = 1.0 which is < 2.0, so without the dedicated
+    zero-guard this would be accepted.  The zero-guard must fire first.)
+    """
+    ema = EMACounter(alpha=0.3, spike_threshold=2.0)
+    ema.update(100)
+    ema.update(100)  # EMA ≈ 100
+
+    val = ema.update(0)
+    assert val > 50, f"Zero with high EMA should be rejected; ema dropped to {val}"
+    assert ema.last_was_rejected is True
+
+    # The zero-guard must NOT count toward the consecutive-rejection counter.
+    assert ema._consecutive_rejections == 0, (
+        "Zero-guard rejection must not increment _consecutive_rejections"
+    )

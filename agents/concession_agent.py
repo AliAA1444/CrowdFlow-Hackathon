@@ -27,6 +27,7 @@ from config import (
     get_state_config,
 )
 from core.schemas import ZoneUpdate
+from core.zone_state_cache import ZoneStateCache
 from agents.base_agent import AgentAction, BaseAgent, run_agent
 
 # ── Channels ─────────────────────────────────────────────────────────────────
@@ -35,13 +36,49 @@ CH_ZONE_METRICS = "broadcast:zone_metrics"
 CH_FAN_INTENT   = "fan:food_intent"
 CH_ZONE_UPDATES = "zone_updates"
 
-# ── Tunables ─────────────────────────────────────────────────────────────────
+# ── Tunables (legacy POS / intent handlers) ──────────────────────────────────
 HIGH_VELOCITY_THRESHOLD  = 40     # txns per minute triggers surge pricing
 VELOCITY_WINDOW          = 60.0   # seconds to measure tx velocity
 LOW_TRAFFIC_UTILIZATION  = 0.25   # zone utilization below this = low traffic
 FLASH_DEAL_COOLDOWN      = 120.0  # seconds between flash deals for same zone
 INTENT_THRESHOLD         = 15     # food intents needed to trigger promotion
 INTENT_WINDOW            = 60.0   # seconds for intent accumulation
+
+# ── Small-venue thresholds for evaluate() ────────────────────────────────────
+# Threshold 0.12: density is low but people are moving — passing traffic, not dwellers.
+# (previously 0.10; raised ~20% for imgsz=1280/conf=0.15 detection improvement)
+SMALL_FLASH_MAX_DENSITY   = 0.12
+# Threshold 1.8 px/frame: visible foot traffic above noise floor
+# (previously 1.5; raised to stay above normal idle-crowd drift after CV fix)
+SMALL_FLASH_MIN_FLOW      = 1.8
+
+# Threshold 0.30: ~120 people in 400 sqm — zone is congested, don't attract more
+# (previously 0.22; scaled up ~36% proportionally with detection improvement)
+SMALL_PAUSE_DENSITY       = 0.30
+
+# Threshold 25: gate is actively processing fans — good welcome-deal moment
+# (previously 20; raised because higher detection captures more partial crossings)
+SMALL_GATE_INFLUX         = 25
+# Threshold 0.18: gate isn't yet congested — promotion won't cause a jam
+# (previously 0.15; slight increase consistent with overall threshold recalibration)
+SMALL_GATE_MAX_DENSITY    = 0.18
+
+_ZONE_AR: dict[str, str] = {
+    "gate_main":      "البوابة الرئيسية",
+    "gate_vip":       "بوابة VIP",
+    "gate_south":     "البوابة الجنوبية",
+    "concourse_main": "الردهة الرئيسية",
+    "stands_east":    "المدرج الشرقي",
+    "stands_west":    "المدرج الغربي",
+    "stands_north":   "المدرج الشمالي",
+    "food_court":     "منطقة الطعام",
+    "activation_zone": "منطقة المشجعين",
+}
+
+
+def _zone_ar(zone_id: str) -> str:
+    return _ZONE_AR.get(zone_id, zone_id)
+
 
 # Exterior zones that can act as overflow attractors
 _EXTERIOR_OVERFLOW_ZONES = ["zone_activation_1", "zone_activation_2"]
@@ -54,8 +91,9 @@ class ConcessionAgent(BaseAgent):
     name = "concession_agent"
     subscribe_channels = [CH_POS_TX, CH_ZONE_METRICS, CH_FAN_INTENT, CH_ZONE_UPDATES]
 
-    def __init__(self) -> None:
+    def __init__(self, zone_state_cache: ZoneStateCache | None = None) -> None:
         super().__init__()
+        self._zone_cache = zone_state_cache
         # stall_id → deque of transaction timestamps
         self.tx_timestamps: dict[str, collections.deque] = {
             sid: collections.deque() for sid in CONCESSION_STALLS
@@ -85,43 +123,79 @@ class ConcessionAgent(BaseAgent):
             actions = await self.evaluate(update)
             await self.publish_actions(actions)
 
-    # ── ZoneUpdate evaluation (Prompt 5) ────────────────────────────────────
+    # ── ZoneUpdate evaluation ────────────────────────────────────────────────
 
     async def evaluate(self, update: ZoneUpdate) -> list[AgentAction]:
-        """Revenue-optimisation rules driven by live ZoneUpdate data."""
+        """Revenue-optimisation rules driven by live ZoneUpdate data.
+
+        Thresholds calibrated for small-venue footage (zones 40–1200 sqm,
+        typical counts 30–150 people, density range 0.05–0.40 p/sqm).
+
+        Note: the old _CONCESSION_ZONE_IDS guard is removed here — evaluate()
+        runs on all zones because our demo zones (gate_main, concourse_main,
+        stands_east) are not listed in the legacy CONCESSION_STALLS config.
+        The other methods (_handle_transaction etc.) still use CONCESSION_STALLS.
+        """
         guard = await super().evaluate(update)
         if update.source == "stale_fallback":
             return guard
-
-        # Only apply concession logic to zones that actually have stalls
-        if update.zone_id not in _CONCESSION_ZONE_IDS:
-            return []
 
         actions: list[AgentAction] = []
         zid = update.zone_id
         d   = update.density
         mag = update.flow_magnitude
 
-        if d < 1.0 and mag > 2.0:
-            # People passing through but not stopping — prime flash-sale moment
+        # ── Flash sale: passing traffic, low dwell ────────────────────────
+        # density < 0.10: zone is not crowded (people moving through)
+        # flow > 1.5 px/frame: measurable foot traffic above noise floor
+        if d < SMALL_FLASH_MAX_DENSITY and mag > SMALL_FLASH_MIN_FLOW:
             actions.append(AgentAction(
-                action="FLASH_SALE_OPPORTUNITY",
+                action="FLASH_SALE",
                 zone_id=zid,
-                priority="LOW",
+                priority="low",
                 detail=(
-                    f"Zone {zid}: high foot traffic (flow={mag:.1f} px/frame) "
-                    f"with low dwell (density={d:.2f} p/m²). "
-                    "Flash sale opportunity — people are passing but not stopping."
+                    f"فرصة في {_zone_ar(zid)}: حركة مشاة مرتفعة "
+                    f"(تدفق: {mag:.1f} بكسل/إطار) مع إقامة منخفضة "
+                    f"(كثافة: {d:.3f} شخص/م²). "
+                    f"إطلاق إشعار فوري عبر التطبيق للمطاعم القريبة."
+                ),
+                public_message=(
+                    f"🎉 عرض حصري الآن! استمتع بخصم خاص على المشتريات "
+                    f"بالقرب من {_zone_ar(zid)}. لا تفوت الفرصة!"
                 ),
             ))
-        elif d > 2.5:
+
+        # ── Pause promotions: zone is congested ───────────────────────────
+        # density > 0.22: ~88 people in 400 sqm — don't attract more foot traffic
+        elif d > SMALL_PAUSE_DENSITY:
             actions.append(AgentAction(
                 action="PAUSE_PROMOTIONS",
                 zone_id=zid,
-                priority="MEDIUM",
+                priority="medium",
                 detail=(
-                    f"Zone {zid}: density {d:.2f} p/m² is congested. "
-                    "Pausing promotions to avoid drawing more people in."
+                    f"ازدحام في {_zone_ar(zid)} (الكثافة: {d:.3f} شخص/م²). "
+                    f"تعليق الإشعارات الترويجية لتجنب زيادة التكدس "
+                    f"في منطقة مشغولة بالفعل."
+                ),
+            ))
+
+        # ── Welcome deal: fans arriving at gate, zone still manageable ────
+        # gate_in > 20: meaningful inflow occurring
+        # density < 0.15: gate area not yet jammed — safe to push a promo
+        if zid.startswith("gate_") and update.gate_in > SMALL_GATE_INFLUX \
+                and d < SMALL_GATE_MAX_DENSITY:
+            actions.append(AgentAction(
+                action="WELCOME_DEAL",
+                zone_id=zid,
+                priority="low",
+                detail=(
+                    f"تدفق مشجعين في {_zone_ar(zid)}: {update.gate_in} دخولاً، "
+                    f"الكثافة الحالية {d:.3f} شخص/م². "
+                    f"إرسال عرض ترحيبي للقادمين الجدد عبر التطبيق."
+                ),
+                public_message=(
+                    f"🎁 أهلاً وسهلاً بكم في CrowdFlow Arena! "
+                    f"استمتعوا بعرض ترحيبي حصري عند {_zone_ar(zid)} — متاح الآن فقط!"
                 ),
             ))
 

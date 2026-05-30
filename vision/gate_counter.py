@@ -22,7 +22,8 @@ class GateTripwireCounter:
         model_path: str = "yolov8n.pt",
         tripwire: tuple[tuple[int, int], tuple[int, int]] = ((0, 0), (100, 0)),
         in_direction: str = "down",
-        confidence_threshold: float = 0.3,
+        # CV TUNING: lower confidence catches partially visible people at gate edges
+        confidence_threshold: float = 0.15,
     ) -> None:
         if in_direction not in _DIRECTION_LABELS:
             raise ValueError(f"in_direction must be one of {_DIRECTION_LABELS}")
@@ -48,12 +49,16 @@ class GateTripwireCounter:
         if self._frame_count % _PRUNE_INTERVAL == 0:
             self._prune_counted_ids()
 
+        # CV TUNING: lower confidence catches partially visible people at gate edges
+        # imgsz=1280 improves detection of people further from camera
+        # persist=True is critical — do not remove (maintains ByteTrack state)
         results = self.model.track(
             frame,
             persist=True,
             conf=self.confidence_threshold,
             classes=[0],
             verbose=False,
+            imgsz=1280,
         )
 
         if results is None or len(results) == 0:

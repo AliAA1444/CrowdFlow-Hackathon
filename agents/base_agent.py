@@ -39,6 +39,7 @@ class AgentAction:
     zone_id: str
     priority: str
     detail: str
+    public_message: str | None = None
 
 
 class BaseAgent(abc.ABC):
@@ -149,14 +150,17 @@ class BaseAgent(abc.ABC):
     async def publish_actions(self, actions: list[AgentAction]) -> None:
         """Publish a list of AgentActions to the agent_actions channel."""
         for act in actions:
-            await self.publish_to(CHANNEL_AGENT_ACTIONS, {
+            payload: dict = {
                 "agent":     self.name,
                 "action":    act.action,
                 "zone_id":   act.zone_id,
                 "priority":  act.priority,
                 "detail":    act.detail,
                 "timestamp": time.time(),
-            })
+            }
+            if act.public_message is not None:
+                payload["public_message"] = act.public_message
+            await self.publish_to(CHANNEL_AGENT_ACTIONS, payload)
 
     # ── Publishing helpers ───────────────────────────────────────────────────
 

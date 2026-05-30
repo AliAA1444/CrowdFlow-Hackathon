@@ -1,421 +1,871 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>CrowdFlow — Fan Assistant</title>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>CrowdFlow — واجهة المشجعين</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet"/>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#0f172a;--surface:#1e293b;--border:#334155;--text:#e2e8f0;
-  --dim:#94a3b8;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--purple:#7c3aed;
-  --user-bg:#1d4ed8;--bot-bg:#334155;
-  --font-en:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  --font-ar:'Tajawal','Cairo',system-ui,sans-serif;
+/* ── Design tokens (mirror dashboard visual language) ── */
+:root {
+  --bg:        #0a0e17;
+  --surface:   #111827;
+  --surface2:  #1a2235;
+  --border:    #1e293b;
+  --text:      #e2e8f0;
+  --dim:       #64748b;
+  --green:     #22c55e;
+  --yellow:    #eab308;
+  --orange:    #f97316;
+  --red:       #ef4444;
+  --blue:      #3b82f6;
+  --font-ar:   'Tajawal', 'Cairo', system-ui, sans-serif;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
 }
-body{font-family:var(--font-en);background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;height:100vh;display:flex;flex-direction:column}
-body.ar{font-family:var(--font-ar);font-size:15px}
 
-/* header */
-.header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
-.header h1{font-size:16px;font-weight:700;letter-spacing:.5px}
-.header-right{display:flex;align-items:center;gap:10px}
-.badge{display:none;background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;animation:slideDown .3s ease}
-.badge.show{display:inline-block}
-.lang-toggle{padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:11px;cursor:pointer}
-.lang-toggle:hover{border-color:var(--blue)}
-@keyframes slideDown{from{transform:translateY(-10px);opacity:0}to{transform:translateY(0);opacity:1}}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* notification card */
-.notif-area{overflow:hidden;max-height:0;transition:max-height .3s ease}
-.notif-area.open{max-height:240px}
-.notif-card{margin:8px 12px;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;animation:slideDown .3s ease}
-.notif-card.deal{background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:var(--green)}
-.notif-card.emergency{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:var(--red);font-weight:600}
-.notif-card.medical{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);color:#c084fc;font-weight:600}
-.notif-card.info{background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);color:var(--blue)}
-.notif-card.reroute{background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.35);color:#fde047}
-.notif-card .notif-title{font-weight:700;margin-bottom:3px;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
-.notif-card .notif-close{float:right;cursor:pointer;opacity:.6;font-size:16px}
-[dir="rtl"] .notif-card .notif-close{float:left}
-.notif-card .notif-close:hover{opacity:1}
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
 
-/* chat */
-.chat{flex:1;overflow-y:auto;padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px}
-.bubble{max-width:82%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
-.bubble.user{align-self:flex-end;background:var(--user-bg);border-bottom-right-radius:4px}
-[dir="rtl"] .bubble.user{border-bottom-right-radius:16px;border-bottom-left-radius:4px}
-.bubble.bot{align-self:flex-start;background:var(--bot-bg);border-bottom-left-radius:4px}
-[dir="rtl"] .bubble.bot{border-bottom-left-radius:16px;border-bottom-right-radius:4px}
-.bubble.bot .b-type{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
-.typing{align-self:flex-start;padding:10px 18px;background:var(--bot-bg);border-radius:16px;border-bottom-left-radius:4px;display:none}
-.typing.show{display:block}
-.typing span{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin:0 2px;animation:bounce .6s infinite}
-.typing span:nth-child(2){animation-delay:.15s}
-.typing span:nth-child(3){animation-delay:.3s}
-@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+body {
+  display: flex;
+  flex-direction: column;
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
 
-/* quick actions */
-.quick-actions{display:flex;gap:8px;padding:8px 12px;overflow-x:auto;flex-shrink:0}
-.quick-actions button{white-space:nowrap;padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;cursor:pointer;transition:border-color .2s,background .2s}
-.quick-actions button:hover{border-color:var(--blue);background:rgba(59,130,246,.1)}
-.quick-actions .btn-safety{border-color:rgba(239,68,68,.5);color:#fca5a5}
-.quick-actions .btn-safety:hover{background:rgba(239,68,68,.1);border-color:var(--red)}
+/* ── Animations ── */
+@keyframes slideDown {
+  from { transform: translateY(-18px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+@keyframes slideUp {
+  from { transform: translateY(0);     opacity: 1; }
+  to   { transform: translateY(-18px); opacity: 0; }
+}
+@keyframes slideInCard {
+  from { transform: translateX(14px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .55; }
+}
+@keyframes toastProgress {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 
-/* input */
-.input-bar{display:flex;gap:8px;padding:10px 12px;background:var(--surface);border-top:1px solid var(--border)}
-.input-bar input{flex:1;padding:10px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;outline:none}
-.input-bar input:focus{border-color:var(--blue)}
-.input-bar button{width:40px;height:40px;border-radius:50%;border:none;background:var(--blue);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.input-bar button:disabled{opacity:.4;cursor:default}
+/* ── Header ── */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(10,14,23,.96);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.header-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: background .3s;
+  flex-shrink: 0;
+}
+.header-dot.connected { background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,.6); }
+.header-dot.error     { background: var(--red);   animation: pulse 1s infinite; }
+.header-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+.header-sub {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lang-btn {
+  padding: 4px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--dim);
+  font-family: var(--font-ar);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.lang-btn:hover { border-color: var(--blue); color: var(--blue); }
 
-/* exterior zone reroute highlight */
-.reroute-tip{font-size:12px;margin-top:4px;opacity:.85;font-style:italic}
+.notif-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color .2s;
+}
+.notif-btn:hover { border-color: var(--blue); }
+.badge {
+  display: none;
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+.badge.visible { display: flex; }
 
-/* notification history */
-.history-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--surface);border-top:1px solid var(--border);cursor:pointer;font-size:12px;color:var(--dim);flex-shrink:0;user-select:none}
-.history-toggle:hover{color:var(--text)}
-.history-toggle .hist-count{background:var(--border);padding:1px 7px;border-radius:10px;font-size:11px}
-.history-panel{max-height:0;overflow-y:auto;transition:max-height .3s ease;flex-shrink:0;background:var(--bg)}
-.history-panel.open{max-height:220px}
-.hist-item{padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;line-height:1.5}
-.hist-item .hist-time{font-size:10px;color:var(--dim);margin-bottom:2px}
-.hist-item .hist-title{font-weight:700;margin-bottom:1px}
-.hist-item.deal .hist-title{color:var(--green)}
-.hist-item.emergency .hist-title{color:var(--red)}
-.hist-item.medical .hist-title{color:#c084fc}
-.hist-item.reroute .hist-title{color:#fde047}
-.hist-item.info .hist-title{color:var(--blue)}
+/* ── Connection bar ── */
+.conn-bar {
+  text-align: center;
+  font-size: 11px;
+  color: var(--dim);
+  padding: 3px 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Toast layer (fixed, never blocks clicks) ── */
+#toast-layer {
+  position: fixed;
+  top: 68px;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  max-width: 430px;
+  margin: 0 auto;
+  z-index: 200;
+  padding: 0 12px;
+  pointer-events: none;
+}
+.toast {
+  display: none;
+  pointer-events: auto;
+  border-radius: var(--r-md);
+  background: rgba(17,24,39,.97);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--blue);
+  padding: 12px 14px 10px;
+  animation: slideDown .22s ease-out;
+  box-shadow: 0 8px 32px rgba(0,0,0,.55);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.toast.visible    { display: block; animation: slideDown .22s ease-out; }
+.toast.dismissing { animation: slideUp .2s ease-in forwards; }
+.toast[data-p="critical"] { border-inline-start-color: var(--red);    }
+.toast[data-p="critical"] { animation: slideDown .22s ease-out, pulse 1.4s infinite; }
+.toast[data-p="high"]     { border-inline-start-color: var(--orange); }
+.toast[data-p="medium"]   { border-inline-start-color: var(--yellow); }
+.toast[data-p="low"]      { border-inline-start-color: var(--green);  }
+.toast-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+.toast[data-p="critical"] .toast-label { color: var(--red);    }
+.toast[data-p="high"]     .toast-label { color: var(--orange); }
+.toast[data-p="medium"]   .toast-label { color: var(--yellow); }
+.toast[data-p="low"]      .toast-label { color: var(--green);  }
+.toast-msg { font-size: 14px; line-height: 1.5; }
+.toast-bar {
+  position: absolute;
+  bottom: 0;
+  inset-inline-start: 0;
+  height: 2px;
+  opacity: .4;
+  animation: toastProgress linear forwards;
+}
+.toast[data-p="critical"] .toast-bar { background: var(--red);    }
+.toast[data-p="high"]     .toast-bar { background: var(--orange); }
+.toast[data-p="medium"]   .toast-bar { background: var(--yellow); }
+.toast[data-p="low"]      .toast-bar { background: var(--green);  }
+
+/* ── Scroll area ── */
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+/* ── Zone list (flexbox column only, no CSS Grid) ── */
+.zones-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zone-card {
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--green);
+  padding: 11px 14px;
+  transition: border-color .4s, box-shadow .4s;
+}
+.zone-card.s-green  { border-inline-start-color: var(--green);  }
+.zone-card.s-yellow { border-inline-start-color: var(--yellow); box-shadow: 0 0 10px rgba(234,179,8,.07); }
+.zone-card.s-red    {
+  border-inline-start-color: var(--red);
+  box-shadow: 0 0 12px rgba(239,68,68,.1);
+  animation: pulse 2.2s infinite;
+}
+
+.zone-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.zone-name { font-size: 14px; font-weight: 600; }
+.zone-subtype { font-size: 10px; color: var(--dim); margin-top: 1px; }
+
+.pill {
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pill.green  { background: rgba(34,197,94,.12);  border: 1px solid rgba(34,197,94,.4);  color: var(--green);  }
+.pill.yellow { background: rgba(234,179,8,.12);  border: 1px solid rgba(234,179,8,.4);  color: var(--yellow); }
+.pill.red    { background: rgba(239,68,68,.12);  border: 1px solid rgba(239,68,68,.4);  color: var(--red);    }
+
+.zone-bar-bg {
+  background: rgba(255,255,255,.06);
+  border-radius: 3px;
+  height: 4px;
+  overflow: hidden;
+}
+.zone-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width .6s ease, background .4s;
+}
+.s-green  .zone-bar-fill { background: var(--green);  }
+.s-yellow .zone-bar-fill { background: var(--yellow); }
+.s-red    .zone-bar-fill { background: var(--red);    }
+
+.zone-count {
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 5px;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+}
+
+/* ── History ── */
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+.hist-chevron { color: var(--dim); font-size: 12px; transition: transform .2s; }
+.hist-chevron.open { transform: rotate(90deg); }
+
+.history-panel {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.history-panel.open { display: flex; animation: fadeIn .2s; }
+.hist-empty { text-align: center; color: var(--dim); font-size: 13px; padding: 10px 0; }
+
+.hist-item {
+  border-radius: var(--r-sm);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-inline-start: 2px solid var(--blue);
+  padding: 8px 10px;
+  animation: fadeIn .2s;
+}
+.hist-item[data-p="critical"] { border-inline-start-color: var(--red);    }
+.hist-item[data-p="high"]     { border-inline-start-color: var(--orange); }
+.hist-item[data-p="medium"]   { border-inline-start-color: var(--yellow); }
+.hist-item[data-p="low"]      { border-inline-start-color: var(--green);  }
+.hist-msg  { font-size: 13px; line-height: 1.45; }
+.hist-time { font-size: 11px; color: var(--dim); margin-top: 3px; direction: ltr; text-align: end; }
+
+/* ── Chat section ── */
+.chat-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.quick-row {
+  display: flex;
+  gap: 7px;
+  padding: 12px 12px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.quick-row::-webkit-scrollbar { display: none; }
+.qbtn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .2s;
+}
+.qbtn:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,.08); }
+
+.chat-bubbles {
+  padding: 12px 12px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 140px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.bubble {
+  max-width: 90%;
+  padding: 11px 15px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.bubble.bot {
+  align-self: flex-start;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-bottom-right-radius: 4px;
+}
+[dir="ltr"] .bubble.bot  { border-bottom-left-radius: 4px; border-bottom-right-radius: 14px; }
+.bubble.user {
+  align-self: flex-end;
+  background: rgba(59,130,246,.18);
+  border: 1px solid rgba(59,130,246,.3);
+  border-bottom-left-radius: 4px;
+}
+[dir="ltr"] .bubble.user { border-bottom-right-radius: 4px; border-bottom-left-radius: 14px; }
+
+.typing-dots {
+  display: none;
+  gap: 4px;
+  align-items: center;
+  padding: 10px 0 2px;
+  align-self: flex-start;
+}
+.typing-dots span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--dim);
+  animation: pulse .85s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: .15s; }
+.typing-dots span:nth-child(3) { animation-delay: .30s; }
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 14px;
+}
+.chat-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 10px 16px;
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 14px;
+  outline: none;
+  transition: border-color .2s;
+}
+.chat-input:focus   { border-color: var(--blue); }
+.chat-input::placeholder { color: var(--dim); }
+
+.send-btn {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--blue);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity .2s;
+}
+.send-btn:hover { opacity: .85; }
+
+/* ── Zone section toggle ── */
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  cursor: pointer;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+.section-header .section-title {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.zone-chev { color: var(--dim); font-size: 12px; transition: transform .2s; flex-shrink: 0; margin-top: 2px; }
+.zone-chev.open { transform: rotate(90deg); }
+.zones-summary {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 </style>
 </head>
 <body>
 
+<div id="toast-layer">
+  <div id="toast-banner" class="toast" onclick="dismissToast()">
+    <div class="toast-label" id="toast-label"></div>
+    <div class="toast-msg"   id="toast-msg"></div>
+  </div>
+</div>
+
+<!-- Header -->
 <header class="header">
-  <h1>CrowdFlow</h1>
-  <div class="header-right">
-    <button class="lang-toggle" id="langToggle" onclick="toggleLang()">EN | AR</button>
-    <span class="badge" id="badge">0</span>
+  <div class="header-brand">
+    <div class="header-dot" id="conn-dot"></div>
+    <div>
+      <div class="header-title" data-i18n="title">CrowdFlow</div>
+      <div class="header-sub"  data-i18n="subtitle">واجهة المشجعين</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="notif-btn" id="notif-btn" onclick="openHistory()">
+      🔔
+      <span class="badge" id="badge">0</span>
+    </button>
+    <button class="lang-btn" id="lang-btn" onclick="toggleLang()">EN</button>
   </div>
 </header>
 
-<div class="notif-area" id="notifArea"></div>
+<!-- Connection bar -->
+<div class="conn-bar" id="conn-bar" data-i18n="connecting">جارٍ الاتصال...</div>
 
-<div class="chat" id="chat">
-  <div class="bubble bot">
-    <div class="b-type" data-i18n="assistant">assistant</div>
-    <span data-i18n="welcome">Hey! I'm your stadium assistant. Ask me about food, bathrooms, crowd levels, safety, or halftime. Use the quick buttons below or type your own question.</span>
+<!-- Main scroll area -->
+<main class="main">
+
+  <section>
+    <div class="section-header" onclick="toggleZones()">
+      <div>
+        <div class="section-title" data-i18n="zones_title">حالة المناطق الآن</div>
+        <div class="zones-summary" id="zones-summary"></div>
+      </div>
+      <span class="zone-chev" id="zones-chev">▶</span>
+    </div>
+    <div class="zones-list" id="zones-list" style="display:none;margin-top:8px"></div>
+  </section>
+
+  <section>
+    <div class="history-header" onclick="toggleHistory()">
+      <div class="section-title" style="border:none;padding-bottom:0;margin-bottom:0" data-i18n="hist_title">سجل التنبيهات</div>
+      <span class="hist-chevron" id="hist-chev">▶</span>
+    </div>
+    <div class="history-panel" id="hist-panel">
+      <div class="hist-empty" data-i18n="hist_empty">لا توجد تنبيهات حتى الآن</div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Chat section -->
+<section class="chat-section">
+  <div class="quick-row" id="quick-row"></div>
+  <div class="chat-bubbles" id="chat-bubbles">
+    <div class="bubble bot" id="welcome-bubble"></div>
+    <div class="typing-dots" id="typing"><span></span><span></span><span></span></div>
   </div>
-</div>
-
-<div class="typing" id="typing"><span></span><span></span><span></span></div>
-
-<div class="quick-actions" id="quickActions">
-  <button onclick="askQuick(0)" data-i18n="q_food">Fast food?</button>
-  <button onclick="askQuick(1)" data-i18n="q_bathroom">Bathroom</button>
-  <button onclick="askQuick(2)" data-i18n="q_crowd">Crowd check</button>
-  <button onclick="askQuick(3)" data-i18n="q_halftime">Halftime?</button>
-  <button onclick="askQuick(4)" class="btn-safety" data-i18n="q_safety">🚨 Is it safe?</button>
-</div>
-
-<div class="input-bar">
-  <input type="text" id="userInput" data-i18n-placeholder="placeholder" placeholder="Ask me anything..." autocomplete="off">
-  <button id="sendBtn" onclick="sendMessage()">&#9654;</button>
-</div>
-
-<div class="history-toggle" id="historyToggle" onclick="toggleHistory()">
-  <span data-i18n="notif_history">Notification History</span>
-  <span class="hist-count" id="histCount">0</span>
-</div>
-<div class="history-panel" id="historyPanel"></div>
+  <div class="input-row">
+    <input class="chat-input" id="chat-input" type="text" autocomplete="off" spellcheck="false"/>
+    <button class="send-btn" onclick="sendQuestion()">↑</button>
+  </div>
+</section>
 
 <script>
-const API = location.origin;
-const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/fan`;
-const chat        = document.getElementById('chat');
-const typing      = document.getElementById('typing');
-const input       = document.getElementById('userInput');
-const badge       = document.getElementById('badge');
-const notifArea   = document.getElementById('notifArea');
-const histPanel   = document.getElementById('historyPanel');
-const histCount   = document.getElementById('histCount');
-let   histTotal   = 0;
+const ZONES_CONFIG = [
+  { id:"gate_main",       ar:"البوابة الرئيسية",  en:"Main Gate",      icon:"🚪", tar:"بوابة",  ten:"Gate"      },
+  { id:"gate_vip",        ar:"بوابة VIP",          en:"VIP Gate",       icon:"⭐", tar:"بوابة",  ten:"Gate"      },
+  { id:"gate_south",      ar:"البوابة الجنوبية",   en:"South Gate",     icon:"🚪", tar:"بوابة",  ten:"Gate"      },
+  { id:"concourse_main",  ar:"الردهة الرئيسية",    en:"Main Concourse", icon:"🏛️", tar:"ردهة",   ten:"Concourse" },
+  { id:"stands_east",     ar:"المدرج الشرقي",      en:"East Stand",     icon:"🏟️", tar:"مدرج",   ten:"Stand"     },
+  { id:"stands_west",     ar:"المدرج الغربي",      en:"West Stand",     icon:"🏟️", tar:"مدرج",   ten:"Stand"     },
+  { id:"stands_north",    ar:"المدرج الشمالي",     en:"North Stand",    icon:"🏟️", tar:"مدرج",   ten:"Stand"     },
+  { id:"food_court",      ar:"منطقة الطعام",       en:"Food Court",     icon:"🍔", tar:"مطعم",   ten:"Food"      },
+  { id:"activation_zone", ar:"منطقة المشجعين",     en:"Fan Zone",       icon:"🎉", tar:"تفاعل",  ten:"Fan Zone"  },
+];
 
-// Exterior overflow zones (shown specially in reroute messages)
-const EXTERIOR_ZONES = new Set(['zone_activation_1','zone_activation_2','zone_north_parking']);
-const EXTERIOR_LABELS = {
-  zone_activation_1: {en:'Activation Zone 1', ar:'منطقة الفعاليات 1'},
-  zone_activation_2: {en:'Activation Zone 2', ar:'منطقة الفعاليات 2'},
-  zone_north_parking:{en:'North Parking Area', ar:'منطقة المواقف الشمالية'},
-};
-const ZONE_LABELS_AR = {
-  zone_north_gate:'البوابة الشمالية', zone_south_gate:'البوابة الجنوبية',
-  zone_east_stand:'المدرج الشرقي', zone_west_stand:'المدرج الغربي',
-  zone_north_concourse:'الردهة الشمالية', zone_south_concourse:'الردهة الجنوبية',
-  zone_pitch_view:'منظر الملعب',
-  zone_activation_1:'منطقة الفعاليات 1', zone_activation_2:'منطقة الفعاليات 2',
-  zone_north_parking:'المواقف الشمالية',
-};
-const ZONE_LABELS_EN = {
-  zone_north_gate:'North Gate', zone_south_gate:'South Gate',
-  zone_east_stand:'East Stand', zone_west_stand:'West Stand',
-  zone_north_concourse:'North Concourse', zone_south_concourse:'South Concourse',
-  zone_pitch_view:'Pitch View',
-  zone_activation_1:'Activation Zone 1', zone_activation_2:'Activation Zone 2',
-  zone_north_parking:'North Parking',
-};
-function zoneLabel(zid) {
-  return currentLang === 'ar' ? (ZONE_LABELS_AR[zid] || zid) : (ZONE_LABELS_EN[zid] || zid);
-}
-
-// ── i18n ────────────────────────────────────────────────────────────────────
 const I18N = {
-  en: {
-    assistant: 'assistant',
-    welcome: "Hey! I'm your stadium assistant. Ask me about food, bathrooms, crowd levels, safety, or halftime. Use the quick buttons below or type your own question.",
-    q_food:'Fast food?', q_bathroom:'Bathroom', q_crowd:'Crowd check',
-    q_halftime:'Halftime?', q_safety:'🚨 Is it safe?',
-    placeholder:'Ask me anything...',
-    flash_deal:'Flash Deal!', special_offer:'Special Offer!',
-    emergency_alert:'Emergency Alert', medical_alert:'Medical Emergency',
-    all_clear:'All Clear', crowd_advisory:'Crowd Advisory', reroute_tip:'Route Suggestion',
-    emergency_body:'Follow stadium staff instructions immediately. Move to the nearest exit calmly.',
-    medical_body:'🏥 Medical team responding. Please stay calm and clear the area. Follow staff guidance.',
-    cleared_body:'Emergency has been resolved. Normal operations resumed.',
-    error_msg:"Couldn't reach the server. Please try again.",
-    fallback_msg:"Sorry, I didn't understand that.",
-    notif_history:'Notification History',
-  },
   ar: {
-    assistant: 'مساعد',
-    welcome: 'أهلاً! أنا مساعدك في الملعب. اسألني عن الأكل، دورات المياه، الأمان، الزحمة، أو الاستراحة. استخدم الأزرار أدناه أو اكتب سؤالك.',
-    q_food:'أكل سريع؟', q_bathroom:'دورة مياه', q_crowd:'كيف الزحمة؟',
-    q_halftime:'الاستراحة؟', q_safety:'🚨 هل الوضع آمن؟',
-    placeholder:'اسألني أي شيء...',
-    flash_deal:'عرض خاطف!', special_offer:'عرض خاص!',
-    emergency_alert:'تنبيه طوارئ', medical_alert:'طوارئ طبية',
-    all_clear:'انتهاء الحالة', crowd_advisory:'تنبيه زحمة', reroute_tip:'اقتراح مسار',
-    emergency_body:'اتبع تعليمات طاقم الملعب فوراً. توجه إلى أقرب مخرج بهدوء.',
-    medical_body:'🏥 الفريق الطبي يستجيب. يرجى البقاء هادئاً وإخلاء المنطقة. اتبع تعليمات الطاقم.',
-    cleared_body:'تم حل الحالة الطارئة. عادت العمليات لطبيعتها.',
-    error_msg:'تعذر الاتصال بالخادم. حاول مرة أخرى.',
-    fallback_msg:'عذراً، لم أفهم سؤالك.',
-    notif_history:'سجل الإشعارات',
-  }
+    title:"CrowdFlow", subtitle:"واجهة المشجعين",
+    connecting:"جارٍ الاتصال...", connected:"متصل · مباشر",
+    reconnecting:"إعادة الاتصال...",
+    zones_title:"حالة المناطق الآن",
+    hist_title:"سجل التنبيهات", hist_empty:"لا توجد تنبيهات حتى الآن",
+    s_green:"متاح", s_yellow:"مزدحم", s_red:"ممتلئ",
+    p_critical:"طارئ", p_high:"تنبيه", p_medium:"إشعار", p_low:"عرض",
+    welcome:"مرحباً بكم في CrowdFlow Arena! تابعوا حالة جميع مناطق الملعب مباشرةً وستصلكم تنبيهات فورية من نظام الذكاء الاصطناعي.",
+    placeholder:"اكتب سؤالك هنا...",
+    q1:"أكثر المناطق ازدحاماً", q2:"أقرب مطعم", q3:"أفضل مخرج الآن", q4:"هل الملعب آمن؟", q5:"أين دورات المياه؟",
+  },
+  en: {
+    title:"CrowdFlow", subtitle:"Fan Interface",
+    connecting:"Connecting...", connected:"Connected · Live",
+    reconnecting:"Reconnecting...",
+    zones_title:"Live Zone Status",
+    hist_title:"Notification History", hist_empty:"No notifications yet",
+    s_green:"Clear", s_yellow:"Busy", s_red:"Full",
+    p_critical:"EMERGENCY", p_high:"ALERT", p_medium:"NOTICE", p_low:"OFFER",
+    welcome:"Welcome to CrowdFlow Arena! Monitor all venue zones live and receive instant AI-powered alerts.",
+    placeholder:"Ask anything about the venue...",
+    q1:"Most crowded area", q2:"Nearest food stall", q3:"Best exit now", q4:"Is it safe?", q5:"Where are restrooms?",
+  },
 };
 
-const QUICK_QUESTIONS = {
-  en: [
-    'Where can I get fast food?',
-    'Where is the nearest bathroom?',
-    'How crowded is it right now?',
-    'What should I know about halftime?',
-    'Is it safe right now?',
-  ],
-  ar: [
-    'وين أقدر آكل أكل سريع؟',
-    'وين أقرب حمام؟',
-    'كيف الزحمة الحين؟',
-    'وش أسوي وقت الاستراحة؟',
-    'هل الوضع آمن؟',
-  ],
-};
+const BAR_PCT = { green: 18, yellow: 58, red: 88 };
+const TOAST_DURATION = 3500;
 
-let currentLang = 'en';
-let notifCount = 0;
-let ws;
+let lang = "ar";
+let histOpen = false;
+let zonesOpen = false;
+let unread = 0;
+const history = [];
+const zs = {};  // zone_id → {status,density,smoothed_count,capacity}
 
-function t(key) { return I18N[currentLang][key] || I18N.en[key] || key; }
+// ── Toast true singleton ──────────────────────────────────────────────────────
+let _toastTimer = null;
 
-function toggleLang() {
-  currentLang = currentLang === 'en' ? 'ar' : 'en';
-  applyLang();
-}
+// ── i18n ──────────────────────────────────────────────────────────────────────
+function t(k) { return I18N[lang][k] || k; }
 
 function applyLang() {
-  const isAr = currentLang === 'ar';
-  document.documentElement.lang = currentLang;
-  document.documentElement.dir = isAr ? 'rtl' : 'ltr';
-  document.body.classList.toggle('ar', isAr);
-  document.getElementById('langToggle').textContent = isAr ? 'AR | EN' : 'EN | AR';
-
-  document.querySelectorAll('[data-i18n]').forEach(el => {
-    el.textContent = t(el.dataset.i18n);
+  document.documentElement.lang  = lang;
+  document.documentElement.dir   = lang === "ar" ? "rtl" : "ltr";
+  document.getElementById("lang-btn").textContent = lang === "ar" ? "EN" : "AR";
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const v = I18N[lang][el.dataset.i18n]; if (v) el.textContent = v;
   });
-  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-    el.placeholder = t(el.dataset['i18nPlaceholder']);
-  });
+  document.getElementById("chat-input").placeholder = t("placeholder");
+  document.getElementById("welcome-bubble").textContent = t("welcome");
+  buildZoneList();
+  buildQuickChips();
+  if (histOpen) renderHistory();
 }
 
-// ── WebSocket push notifications ─────────────────────────────────────────────
-function connectWS() {
-  ws = new WebSocket(WS_URL);
-  ws.onclose = () => setTimeout(connectWS, 3000);
-  ws.onerror = () => ws.close();
-  ws.onmessage = (e) => {
-    try { handlePush(JSON.parse(e.data).data); } catch {}
-  };
+function toggleLang() { lang = lang === "ar" ? "en" : "ar"; applyLang(); }
+
+// ── Zone section toggle ───────────────────────────────────────────────────────
+function toggleZones() {
+  zonesOpen = !zonesOpen;
+  const list = document.getElementById("zones-list");
+  const chev = document.getElementById("zones-chev");
+  list.style.display = zonesOpen ? "flex" : "none";
+  list.style.flexDirection = "column";
+  chev.textContent = zonesOpen ? "▼" : "▶";
+  chev.classList.toggle("open", zonesOpen);
 }
 
-function handlePush(data) {
-  const action = data.action || '';
-  let type  = 'info';
-  let title = 'Update';
-  let body  = '';
-  let extra = '';
+function updateZonesSummary() {
+  let g = 0, y = 0, r = 0;
+  ZONES_CONFIG.forEach(z => {
+    const s = (zs[z.id] && zs[z.id].status) || "green";
+    if (s === "red") r++; else if (s === "yellow") y++; else g++;
+  });
+  const el = document.getElementById("zones-summary");
+  if (!el) return;
+  const parts = [];
+  if (r) parts.push(`<span style="color:var(--red)">🔴 ${r}</span>`);
+  if (y) parts.push(`<span style="color:var(--yellow)">🟡 ${y}</span>`);
+  if (g) parts.push(`<span style="color:var(--green)">🟢 ${g}</span>`);
+  el.innerHTML = parts.join("");
+}
 
-  if (action === 'FLASH_DEAL' || action === 'TARGETED_PROMOTION') {
-    type = 'deal';
-    title = action === 'FLASH_DEAL' ? t('flash_deal') : t('special_offer');
-    const d = data.details || {};
-    const disc  = d.recommended_discount ? `${Math.round(d.recommended_discount * 100)}%` : '';
-    const stall = d.stall_name || d.target_stall_name || '';
-    const reason = d.reason || '';
-    body = currentLang === 'ar'
-      ? `خصم ${disc} في ${stall}. عرض لفترة محدودة!`
-      : `${disc} off at ${stall}. Limited time!`;
-    if (reason) extra = `<div class="reroute-tip">${reason}</div>`;
+// ── Zone list ─────────────────────────────────────────────────────────────────
+function buildZoneList() {
+  const list = document.getElementById("zones-list");
+  list.innerHTML = "";
+  ZONES_CONFIG.forEach(z => list.appendChild(makeCard(z, zs[z.id] || { status:"green", density:0, smoothed_count:0, capacity:0 })));
+  updateZonesSummary();
+}
 
-  } else if (action === 'EMERGENCY_ALERT') {
-    type  = 'emergency';
-    title = t('emergency_alert');
-    body  = t('emergency_body');
+function makeCard(z, s) {
+  const div  = document.createElement("div");
+  const name = lang === "ar" ? z.ar : z.en;
+  const sub  = lang === "ar" ? z.tar : z.ten;
+  const pill = t(`s_${s.status}`);
+  const pct  = BAR_PCT[s.status] || 10;
+  const cap  = s.capacity ? `${s.smoothed_count} / ${s.capacity}` : `${s.smoothed_count}`;
+  div.className = `zone-card s-${s.status}`;
+  div.id = `zc-${z.id}`;
+  div.innerHTML = `
+    <div class="zone-top">
+      <div>
+        <div class="zone-name">${z.icon} ${name}</div>
+        <div class="zone-subtype">${sub}</div>
+      </div>
+      <span class="pill ${s.status}">${pill}</span>
+    </div>
+    <div class="zone-bar-bg"><div class="zone-bar-fill" style="width:${pct}%"></div></div>
+    <div class="zone-count" dir="ltr">${cap}</div>`;
+  return div;
+}
 
-  } else if (action === 'MEDICAL_EMERGENCY') {
-    type  = 'medical';
-    title = `🏥 ${t('medical_alert')}`;
-    const zoneId = data.zone_id || '';
-    const reason = data.details?.reason || '';
-    body = t('medical_body');
-    if (zoneId) body += currentLang === 'ar'
-      ? `\nالمنطقة: ${zoneLabel(zoneId)}`
-      : `\nZone: ${zoneLabel(zoneId)}`;
-    if (reason && reason !== 'Medical emergency — manual override') {
-      extra = `<div class="reroute-tip">${reason}</div>`;
-    }
+function updateZone(zid, status, density, smoothed_count, capacity) {
+  zs[zid] = { status, density, smoothed_count: Math.round(smoothed_count || 0), capacity: capacity || 0 };
+  const z = ZONES_CONFIG.find(x => x.id === zid); if (!z) return;
+  const old = document.getElementById(`zc-${zid}`);
+  const card = makeCard(z, zs[zid]);
+  if (old) { card.style.animation = old.className !== card.className ? "slideInCard .22s ease-out" : "none"; old.replaceWith(card); }
+  updateZonesSummary();
+}
 
-  } else if (action === 'EMERGENCY_CLEARED') {
-    type  = 'deal';
-    title = t('all_clear');
-    body  = t('cleared_body');
+// ── Toast true singleton — overwrites in place, never blocks UI ───────────────
+function showToast(priority, message) {
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
 
-  } else if (action === 'REROUTE_TRAFFIC') {
-    type  = 'reroute';
-    title = t('crowd_advisory');
-    const targetZone = data.details?.suggested_target_zone;
-    const rawZoneId = data.zone_id || 'a zone';
-    const zoneDisplay = zoneLabel(rawZoneId);
+  const banner = document.getElementById("toast-banner");
+  banner.setAttribute("data-p", priority);
+  document.getElementById("toast-label").textContent = t(`p_${priority}`) || priority;
+  document.getElementById("toast-msg").textContent   = message;
 
-    if (EXTERIOR_ZONES.has(targetZone)) {
-      // Exterior overflow suggestion — special helpful message
-      const targetLabel = EXTERIOR_LABELS[targetZone]?.[currentLang] || zoneLabel(targetZone);
-      body = currentLang === 'ar'
-        ? `ازدحام في ${zoneDisplay}. توجه إلى ${targetLabel} — مساحة خارجية أكثر هدوءاً.`
-        : `High traffic in ${zoneDisplay}. Head to ${targetLabel} — a quieter outdoor area.`;
-      extra = `<div class="reroute-tip">→ ${targetLabel}</div>`;
-    } else if (targetZone) {
-      const targetLabel = zoneLabel(targetZone);
-      body = currentLang === 'ar'
-        ? `ازدحام عالٍ في ${zoneDisplay}. يُوصى بالتوجه إلى ${targetLabel}.`
-        : `High traffic in ${zoneDisplay}. Consider moving to ${targetLabel}.`;
-    } else {
-      body = currentLang === 'ar'
-        ? `ازدحام عالٍ في ${zoneDisplay}. يرجى استخدام مسارات بديلة.`
-        : `High traffic in ${zoneDisplay}. Consider alternative routes.`;
-    }
+  // Restart slide-down animation by toggling class
+  banner.classList.remove("visible", "dismissing");
+  banner.offsetHeight; // force reflow
+  banner.classList.add("visible");
+
+  _toastTimer = setTimeout(dismissToast, TOAST_DURATION);
+}
+
+function dismissToast() {
+  const banner = document.getElementById("toast-banner");
+  banner.classList.add("dismissing");
+  setTimeout(() => banner.classList.remove("visible", "dismissing"), 220);
+  _toastTimer = null;
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+function pushHistory(priority, message, ts) {
+  history.unshift({ priority, message, ts: ts || Date.now() / 1000 });
+  if (history.length > 30) history.pop();
+  unread++;
+  const b = document.getElementById("badge");
+  b.textContent = unread > 99 ? "99+" : unread;
+  b.classList.add("visible");
+  if (histOpen) renderHistory();
+}
+
+function renderHistory() {
+  const panel = document.getElementById("hist-panel");
+  if (!history.length) {
+    panel.innerHTML = `<div class="hist-empty">${t("hist_empty")}</div>`; return;
   }
-
-  if (body) showNotification(type, title, body + extra);
+  panel.innerHTML = history.map(e => {
+    const d = new Date(e.ts * 1000);
+    const tstr = d.toLocaleTimeString(lang === "ar" ? "ar-SA" : "en-US", { hour:"2-digit", minute:"2-digit" });
+    return `<div class="hist-item" data-p="${e.priority}"><div class="hist-msg">${e.message}</div><div class="hist-time" dir="ltr">${tstr}</div></div>`;
+  }).join("");
 }
 
 function toggleHistory() {
-  histPanel.classList.toggle('open');
+  histOpen = !histOpen;
+  document.getElementById("hist-panel").classList.toggle("open", histOpen);
+  const chev = document.getElementById("hist-chev");
+  chev.textContent = histOpen ? "▼" : "▶";
+  chev.classList.toggle("open", histOpen);
+  if (histOpen) { unread = 0; document.getElementById("badge").classList.remove("visible"); renderHistory(); }
 }
 
-function addToHistory(type, title, bodyText) {
-  histTotal++;
-  histCount.textContent = histTotal;
-  const now = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-  const item = document.createElement('div');
-  item.className = `hist-item ${type}`;
-  item.innerHTML = `<div class="hist-time">${now}</div><div class="hist-title">${title}</div><div>${bodyText}</div>`;
-  histPanel.prepend(item);
-  // Keep max 30 history items
-  while (histPanel.children.length > 30) histPanel.removeChild(histPanel.lastChild);
+function openHistory() { if (!histOpen) toggleHistory(); }
+
+function notify(priority, message, ts) {
+  showToast(priority, message);
+  pushHistory(priority, message, ts);
 }
 
-function showNotification(type, title, bodyHtml) {
-  notifCount++;
-  badge.textContent = notifCount;
-  badge.classList.add('show');
+// ── WebSocket ──────────────────────────────────────────────────────────────────
+function setConn(st) {
+  const dot = document.getElementById("conn-dot");
+  const bar = document.getElementById("conn-bar");
+  dot.className = "header-dot" + (st === "ok" ? " connected" : st === "err" ? " error" : "");
+  const key = st === "ok" ? "connected" : "reconnecting";
+  bar.textContent = t(key);
+  bar.dataset.i18n = key;
+}
 
-  const card = document.createElement('div');
-  card.className = `notif-card ${type}`;
-  card.innerHTML = `<span class="notif-close" onclick="this.parentElement.remove()">&times;</span><div class="notif-title">${title}</div>${bodyHtml}`;
-  notifArea.prepend(card);
-  notifArea.classList.add('open');
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/fan`);
+  ws.onopen  = () => setConn("ok");
+  ws.onclose = () => { setConn("err"); setTimeout(connect, 2000); };
+  ws.onerror = () => ws.close();
+  ws.onmessage = e => { try { handle(JSON.parse(e.data)); } catch {} };
+}
 
-  // Also persist to history (strip HTML tags for plain text)
-  const tmpDiv = document.createElement('div');
-  tmpDiv.innerHTML = bodyHtml;
-  addToHistory(type, title, tmpDiv.textContent.trim());
+function handle(msg) {
+  if (msg.event === "zone_status") {
+    updateZone(msg.zone_id, msg.status, msg.density, msg.smoothed_count, msg.capacity);
+    return;
+  }
+  if (msg.event === "fan_notification") {
+    notify(msg.priority || "low", msg.public_message || msg.action, msg.timestamp);
+    return;
+  }
+  // Legacy orchestrator alerts
+  if (msg.channel === "fan:notification" && msg.data) {
+    const d = msg.data;
+    const action = d.action || "";
+    let pri = "high", text = action;
+    if (action === "EMERGENCY_ALERT" || action === "MEDICAL_EMERGENCY") {
+      pri = "critical";
+      text = lang === "ar"
+        ? `🚨 تنبيه طارئ في الملعب. يُرجى اتباع توجيهات فريق السلامة فوراً.`
+        : `🚨 Emergency alert. Please follow safety team directions immediately.`;
+    } else if (action === "EMERGENCY_CLEARED") {
+      pri = "medium";
+      text = lang === "ar" ? "✅ تم رفع الإنذار. الوضع طبيعي." : "✅ Alert cleared. Situation is normal.";
+    } else if (action === "REROUTE_TRAFFIC") {
+      pri = "high";
+      const tgt = d.details && d.details.suggested_target_zone || "";
+      text = lang === "ar"
+        ? `🚦 يُرجى الابتعاد عن ${d.zone_id || ""}${tgt ? " والتوجه نحو " + tgt : ""}.`
+        : `🚦 Please move away from ${d.zone_id || ""}${tgt ? " toward " + tgt : ""}.`;
+    } else if (action === "FLASH_DEAL" || action === "TARGETED_PROMOTION") {
+      pri = "low";
+      text = lang === "ar" ? `🎉 عرض خاص في ${d.zone_id || ""}!` : `🎉 Special offer at ${d.zone_id || ""}!`;
+    }
+    notify(pri, text, d.details && d.details.timestamp);
+  }
+}
 
-  setTimeout(() => {
-    if (card.parentElement) card.remove();
-    if (!notifArea.children.length) notifArea.classList.remove('open');
-  }, 12000);
+// ── Quick chips ───────────────────────────────────────────────────────────────
+function buildQuickChips() {
+  const row = document.getElementById("quick-row");
+  row.innerHTML = "";
+  ["q1","q2","q3","q4","q5"].forEach(k => {
+    const btn = document.createElement("button");
+    btn.className = "qbtn";
+    btn.textContent = t(k);
+    btn.onclick = () => sendQuestion(t(k));
+    row.appendChild(btn);
+  });
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-function addBubble(text, who, type) {
-  const bubble = document.createElement('div');
-  bubble.className = `bubble ${who}`;
-  if (who === 'bot' && type) {
-    bubble.innerHTML = `<div class="b-type">${type}</div>${escapeHtml(text)}`;
-  } else {
-    bubble.textContent = text;
-  }
-  chat.appendChild(bubble);
-  chat.scrollTop = chat.scrollHeight;
+function addBubble(text, isUser) {
+  const bubbles = document.getElementById("chat-bubbles");
+  const typing  = document.getElementById("typing");
+  const el = document.createElement("div");
+  el.className = `bubble ${isUser ? "user" : "bot"}`;
+  el.textContent = text;
+  bubbles.insertBefore(el, typing);
+  bubbles.scrollTop = 999999;
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-async function sendMessage() {
-  const q = input.value.trim();
+async function sendQuestion(override) {
+  const inp = document.getElementById("chat-input");
+  const q   = override !== undefined ? override : inp.value.trim();
   if (!q) return;
-  input.value = '';
-  addBubble(q, 'user');
-  typing.classList.add('show');
-  chat.scrollTop = chat.scrollHeight;
-
+  inp.value = "";
+  addBubble(q, true);
+  const typing = document.getElementById("typing");
+  typing.style.display = "flex";
+  document.getElementById("chat-bubbles").scrollTop = 999999;
   try {
-    const resp = await fetch(`${API}/api/fan/ask`, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({question: q}),
-    });
-    const data = await resp.json();
-    typing.classList.remove('show');
-    addBubble(data.answer || t('fallback_msg'), 'bot', data.type || t('assistant'));
+    const res  = await fetch("/api/fan/ask", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ question:q }) });
+    const data = await res.json();
+    typing.style.display = "none";
+    addBubble(data.answer || (lang === "ar" ? "لا توجد معلومات متاحة حالياً." : "No information available right now."), false);
   } catch {
-    typing.classList.remove('show');
-    addBubble(t('error_msg'), 'bot', 'error');
+    typing.style.display = "none";
+    addBubble(lang === "ar" ? "تعذّر الاتصال. يرجى المحاولة لاحقاً." : "Connection failed. Please try again.", false);
   }
 }
 
-function askQuick(idx) {
-  input.value = QUICK_QUESTIONS[currentLang][idx];
-  sendMessage();
-}
+document.getElementById("chat-input").addEventListener("keydown", e => { if (e.key === "Enter") sendQuestion(); });
 
-input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
-
-connectWS();
+// ── Init ─────────────────────────────────────────────────────────────────────
+applyLang();
+connect();
 </script>
 </body>
 </html>
